@@ -131,7 +131,7 @@
 
         <!-- planner manager -->
         <param name="manager/drone_id" value="$(arg drone_id)"/>
-        <!-- 2D规划参数 -->
+        <!-- 2D规划参数 能固定轨迹高度 适用于UGV-->
         <param name="manager/fix_height" value="true" type="bool"/>
         <param name="manager/fixed_height" value="0.2" type="double"/>
         <!-- 最大速度 -->
