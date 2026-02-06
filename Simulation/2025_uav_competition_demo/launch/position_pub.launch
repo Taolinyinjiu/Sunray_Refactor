@@ -1,8 +1,0 @@
-<?xml version="1.0"?>
-<launch>
-  <node pkg="2025_uav_competiton_demo"
-        type="position_pub.py"
-        name="position_publisher"
-        output="screen">
-  </node>
-</launch>
