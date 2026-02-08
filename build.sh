@@ -6,7 +6,7 @@ set -e
 # 目录设置
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly WORKSPACE_ROOT="$SCRIPT_DIR"
-readonly BUILDSCRIPTS_DIR="$SCRIPT_DIR/buildscripts"
+readonly BUILDSCRIPTS_DIR="$SCRIPT_DIR/tools/buildscripts"
 
 # 预处理命令行参数，决定界面模式
 # 规则：只有无参数或明确指定--tui时才使用TUI界面
