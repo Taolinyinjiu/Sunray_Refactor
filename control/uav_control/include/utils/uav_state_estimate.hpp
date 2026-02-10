@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Eigen/Dense>
-#include "utils/geometry_eigen_conversions.h"
+#include "utils/geometry_eigen_conversions.hpp"
 #include <nav_msgs/Odometry.h>
 #include <ros/time.h>
 
