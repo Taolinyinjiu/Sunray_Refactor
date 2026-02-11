@@ -24,6 +24,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -41,7 +42,7 @@
 namespace px4_common {
 struct State {
   State();
-  State(const mavros_msgs::State& state_msg);
+  State(const mavros_msgs::State &state_msg);
 
   bool connected;
   bool armed;
@@ -53,15 +54,15 @@ struct State {
 
 struct ExtendedState {
   ExtendedState();
-  ExtendedState(const mavros_msgs::ExtendedState& extendedstate_msg);
+  ExtendedState(const mavros_msgs::ExtendedState &extendedstate_msg);
 
   uint8_t vtol_state;
-  uint8_t lamded_state;
+  uint8_t landed_state;
 };
 
 struct BatteryState {
   BatteryState();
-  BatteryState(const sensor_msgs::BatteryState& batterystate_msg);
+  BatteryState(const sensor_msgs::BatteryState &batterystate_msg);
 
   float voltage;
   float temperature;
@@ -82,33 +83,44 @@ struct BatteryState {
 
 struct SysStatus {
   SysStatus();
-  SysStatus(const mavros_msgs::SysStatus& sysstatus_msg);
+  SysStatus(const mavros_msgs::SysStatus &sysstatus_msg);
 
-  uint32_t onboard_control_sensors_present;
-  uint32_t onboard_control_sensors_enabled;
-  uint32_t onboard_control_sensors_health;
-  float load;
-  float voltage_battery;
-  float drop_rate_comm;
-  uint16_t errors_count;
-  float battery_remaining;
-  uint8_t battery_remaining_percent;
-  std::string autopilot_version;
+  uint32_t sensors_present;
+  uint32_t sensors_enabled;
+  uint32_t sensors_health;
+  uint16_t load;
+  uint16_t voltage_battery;
+  int16_t current_battery;
+  int8_t battery_remaining;
+  uint16_t drop_rate_comm;
+  uint16_t errors_comm;
+  uint16_t errors_count1;
+  uint16_t errors_count2;
+  uint16_t errors_count3;
+  uint16_t errors_count4;
 };
 
 struct EstimatorStatus {
   EstimatorStatus();
-  EstimatorStatus(const mavros_msgs::EstimatorStatus& estimatorstatus_msg);
+  EstimatorStatus(const mavros_msgs::EstimatorStatus &estimatorstatus_msg);
 
-  uint8_t estimator_type;
-  std::vector<uint8_t> healthy;  // per-estimator health flags
-  std::vector<uint8_t> timeout;  // per-estimator timeout flags
-  uint16_t gyro_calibration_count;
+  bool attitude_status_flag;
+  bool velocity_horiz_status_flag;
+  bool velocity_vert_status_flag;
+  bool pos_horiz_rel_status_flag;
+  bool pos_horiz_abs_status_flag;
+  bool pos_vert_abs_status_flag;
+  bool pos_vert_agl_status_flag;
+  bool const_pos_mode_status_flag;
+  bool pred_pos_horiz_rel_status_flag;
+  bool pred_pos_horiz_abs_status_flag;
+  bool gps_glitch_status_flag;
+  bool accel_error_status_flag;
 };
 
 struct OpticalFlowRad {
   OpticalFlowRad();
-  OpticalFlowRad(const mavros_msgs::OpticalFlowRad& of_msg);
+  OpticalFlowRad(const mavros_msgs::OpticalFlowRad &of_msg);
 
   uint32_t integration_time_us;
   float integrated_x;
@@ -116,15 +128,15 @@ struct OpticalFlowRad {
   float integrated_xgyro;
   float integrated_ygyro;
   float integrated_zgyro;
+	int16_t temperature;
+	uint8_t quality;
   uint32_t time_delta_distance_us;
   float distance;
-  float temperature;
-  uint8_t sensor_id;
 };
 
 struct Odometry {
   Odometry();
-  Odometry(const nav_msgs::Odometry& odom_msg);
+  Odometry(const nav_msgs::Odometry &odom_msg);
 
   // header
   uint32_t header_sec;
@@ -143,7 +155,7 @@ struct Odometry {
 
 struct TwistStamped {
   TwistStamped();
-  TwistStamped(const geometry_msgs::TwistStamped& twist_msg);
+  TwistStamped(const geometry_msgs::TwistStamped &twist_msg);
 
   uint32_t header_sec;
   uint32_t header_nsec;
@@ -155,7 +167,7 @@ struct TwistStamped {
 
 struct Imu {
   Imu();
-  Imu(const sensor_msgs::Imu& imu_msg);
+  Imu(const sensor_msgs::Imu &imu_msg);
 
   double orientation[4];
   double orientation_covariance[9];
@@ -167,4 +179,4 @@ struct Imu {
   double linear_acceleration_covariance[9];
 };
 
-};  // namespace px4_common
+}; // namespace px4_common
