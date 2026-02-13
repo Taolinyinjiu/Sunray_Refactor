@@ -1,9 +1,9 @@
 /**
- * @file px4_manager.h
- * @brief PX4状态管理类
+ * @file px4_datareader.h
+ * @brief PX4数据读取类
  *
  * @details
- * 这个头文件实现了一个PX4的状态管理类，该类通过订阅一些mavros消息，获取当前飞控的状态，并通过一些结构体变量向外暴露，
+ * 这个头文件实现了一个PX4的数据读取类，该类通过订阅一些mavros消息，获取当前飞控的状态，并通过一些结构体变量向外暴露，
  * 供用户快速的判断px4飞控的状态，同时提供切换模式，写入参数等函数，方便用户的使用
  *
  * 设计意图：
@@ -23,6 +23,7 @@
 
 #include "mavros_eigen_conversions.h"
 #include "ros/node_handle.h"
+
 class PX4_StateManager {
 public:
   PX4_StateManager();
