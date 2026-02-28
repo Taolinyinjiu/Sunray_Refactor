@@ -3,17 +3,10 @@
  * @brief 快速的的读取px4飞控的各种数据
  *
  * @details
- * 这个头文件提供了在 UAV 控制中常用的数据类型转换函数，用于将 MAVROS
- * 消息格式与 Eigen 线性代数库之间进行转换。
- *
- * 设计意图：
- * - 简化 ROS MAVROS 节点与 Eigen 库的数据交互
- * - 提供类型安全的转换接口
- * - 支持位置、速度、四元数等 3D 控制常见的数据类型
- * - 降低代码复杂度，提高代码可维护性
- *
+ * px4_reader.h
+ * 该文件设计的初衷为简化用户的操作，通过px4_reader可以快速的读取所需要的飞控数据，而不必关心底层实现
  * @author taolinyinjiu
- * @date 2026-02-10
+ * @date 2026-02-28
  * @version 0.1
  *
  * @see https://docs.ros.org/noetic/api/mavros/html/
@@ -25,9 +18,12 @@
 #pragma once
 
 #include "mavros_eigen_conversions.h"
-#include "reader_types.h"
+// #include "px4_data.h"
+#include "px4_datatypes.h"
 #include "ros/node_handle.h"
+#include <cstdint>
 
+// 设计一个reader_list_结构体，变量使用bool类型，用于表示PX4_Reader实例需要读取的数据类型，默认全部不订阅，要求用户按需求进行订阅
 struct reader_list_ {
   bool read_system_state;
   bool read_ekf2_state;
@@ -40,6 +36,8 @@ struct reader_list_ {
   bool read_attitude_param;
   bool read_velocity_param;
   bool read_position_param;
+  // 默认构造函数
+  reader_list_() { disable_all(); };
 
   void enable_all() {
     // std::fill 方法要求结构体全部由bool类型组成
@@ -51,55 +49,66 @@ struct reader_list_ {
 };
 
 class PX4_Reader {
- public:
-  PX4_Reader();
+public:
+  // 构造函数，当不带有reader_list_结构体参数时，默认全订阅
+  PX4_Reader(ros::NodeHandle &nh);
+  PX4_Reader(ros::NodeHandle &nh, reader_list_ enable_list_);
+  // 实现一个初始化订阅者的函数，从而提高后期的可维护性
+  void initSubscribers(ros::NodeHandle &nh, reader_list_ enable_list_);
+  // 析构函数
   ~PX4_Reader();
-  // 手动初始化，对于enable_list应该是一个可选的参数,当不带该参数时，默认全订阅
-  void init(ros::NodeHandle& nh);
-  void init(ros::NodeHandle& nh, reader_list_ enable_list_);
 
-	// get前缀，立即返回
-  reader_types::system_state_ get_system_state(void);
-  reader_types::ekf2_state_ get_ekf2_state(void);
-  reader_types::flow_state_ get_flow_state(void);
-  reader_types::pose_ get_local_pose(void);
-  reader_types::velocity_ get_local_velocity(void);
-  reader_types::pose_ get_body_pose(void);
-  reader_types::velocity_ get_body_velocity(void);
-  // fetch前缀，实时调用mavros服务，阻塞返回
-	reader_types::ekf2_param_ fetch_ekf2_param(void);
-  reader_types::attitude_param_ fetch_attitude_param(void);
-  reader_types::attitude_param_ fetch_velocity_param(void);
-  reader_types::attitude_param_ fetch_position_param(void);
+  // get前缀，立即返回
+  px4_data::system_state_ get_system_state(void);
+  px4_data::ekf2_state_ get_ekf2_state(void);
+  px4_data::opflow_state_ get_flow_state(void);
+  px4_data::pose_ get_local_pose(void);
+  px4_data::velocity_ get_local_velocity(void);
+  px4_data::pose_ get_body_pose(void);
+  px4_data::velocity_ get_body_velocity(void);
+  // fetch前缀，实时调用mavros服务，得到参数后才返回，需要等待，也就是阻塞
+  px4_data::ekf2_param_ fetch_ekf2_param(void);
+  px4_data::attitude_param_ fetch_attitude_param(void);
+  px4_data::attitude_param_ fetch_velocity_param(void);
+  px4_data::attitude_param_ fetch_position_param(void);
 
- 	static reader_types::FlightMode flightmode_fromString(const std::string& mode); 
- private:
-	// 互斥锁 (使用 mutable 允许在 const 函数中使用)
-	mutable std::mutex system_state_mtx;
-	// 是否成功读取到无人机id
-	bool read_uavid_flag;
+  static px4_data::FlightMode flightmode_fromString(const std::string &mode);
+
+private:
+  // 互斥锁 (使用 mutable 允许在 const 函数中使用)
+  mutable std::mutex system_state_mtx;
+  // 是否成功读取到无人机id
+  int uav_id;
+  std::string uav_name;
   // 系统基本状态
-  reader_types::system_state_ system_state;
+  px4_data::system_state_ system_state;
   // ekf2估计状态
-  reader_types::ekf2_state_ ekf2_state;
-  // 光流数据
-  reader_types::flow_state_ flow_state;
+  px4_data::ekf2_state_ ekf2_state;
+  // TODO:光流数据(原始)，maybe需要修改为圆形缓冲区
+  px4_data::opflow_raw_ opflow_raw;
   // 惯性系位置与姿态
-  reader_types::pose_ local_pose;
+  px4_data::pose_ local_pose;
   // 惯性系速度
-  reader_types::velocity_ local_velocity;
+  px4_data::velocity_ local_velocity;
   // 机体系姿态
-  reader_types::pose_ body_pose;
+  px4_data::pose_ body_pose;
   // 机体系速度
-  reader_types::velocity_ body_velocity;
+  px4_data::velocity_ body_velocity;
   // ekf2相关参数
-  reader_types::ekf2_param_ ekf2_param;
+  px4_data::ekf2_param_ ekf2_param;
   // 姿态控制器相关参数
-  reader_types::attitude_param_ attitude_param;
+  px4_data::attitude_param_ attitude_param;
   // 速度控制器相关参数
-  reader_types::velocity_param_ velocity_param;
+  px4_data::velocity_param_ velocity_param;
   // 位置控制器相关参数
-  reader_types::position_param_ position_param;
+  px4_data::position_param_ position_param;
+  // 定义表项结构
+  struct SubscribeEntry {
+    bool reader_list_::* flag;              // 指向开关的成员指针
+    ros::Subscriber PX4_Reader::* handle;   // 指向句柄的成员指针
+    std::function<ros::Subscriber()> make; // 订阅执行器
+  };
+
   // 订阅者
   ros::Subscriber state_sub_;
   ros::Subscriber exstate_sub_;
@@ -111,14 +120,14 @@ class PX4_Reader {
   ros::Subscriber body_att_sub_;
   ros::Subscriber body_vel_sub_;
   // 回调函数
-  void stateCallback(const mavros_msgs::State::ConstPtr& msg);
-  void exstateCallback(const mavros_msgs::ExtendedState::ConstPtr& msg);
-  void sysCallback(const mavros_msgs::SysStatus::ConstPtr& msg);
-  void ekf2statusCallback(const mavros_msgs::EstimatorStatus::ConstPtr& msg);
-  void opflowCallback(const mavros_msgs::OpticalFlowRad::ConstPtr& msg);
-  void localOdomCallback(const nav_msgs::Odometry::ConstPtr& msg);
-  void localVelCallback(const geometry_msgs::TwistStamped::ConstPtr& msg);
-  void bodyAttCallback(const sensor_msgs::Imu::ConstPtr& msg);
-  void bodyVelCallback(const geometry_msgs::TwistStamped::ConstPtr& msg);
-	// 服务端
+  void stateCallback(const mavros_msgs::State::ConstPtr &msg);
+  void exstateCallback(const mavros_msgs::ExtendedState::ConstPtr &msg);
+  void sysCallback(const mavros_msgs::SysStatus::ConstPtr &msg);
+  void ekf2statusCallback(const mavros_msgs::EstimatorStatus::ConstPtr &msg);
+  void opflowCallback(const mavros_msgs::OpticalFlowRad::ConstPtr &msg);
+  void localOdomCallback(const nav_msgs::Odometry::ConstPtr &msg);
+  void localVelCallback(const geometry_msgs::TwistStamped::ConstPtr &msg);
+  void bodyAttCallback(const sensor_msgs::Imu::ConstPtr &msg);
+  void bodyVelCallback(const geometry_msgs::TwistStamped::ConstPtr &msg);
+  // 服务端
 };
