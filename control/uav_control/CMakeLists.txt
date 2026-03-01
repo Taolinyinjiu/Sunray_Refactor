@@ -16,6 +16,9 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   std_msgs
   nav_msgs
+  geometry_msgs
+  sensor_msgs
+  mavros_msgs
 )
 
 ## Uncomment this if the package has a setup.py. This macro ensures
@@ -150,13 +153,19 @@ target_link_libraries(px4_manager_lib INTERFACE
 # add_dependencies(${PROJECT_NAME} ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Declare a C++ executable
-add_executable(test_node src/px4_manager/mavros_eigen_conversions.cpp)
+add_executable(px4_reader_test_node
+  src/px4_manager/px4_reader_test_node.cpp
+  src/px4_manager/px4_reader.cpp
+  src/px4_manager/px4_reader_callback.cpp
+  src/px4_manager/px4_datatypes.cpp
+  src/px4_manager/mavros_eigen_conversions.cpp
+)
 
 ## Add cmake target dependencies of the executable
-add_dependencies(test_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(px4_reader_test_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Specify libraries to link the executable against
-target_link_libraries(test_node
+target_link_libraries(px4_reader_test_node
   ${catkin_LIBRARIES}
   ${EIGEN3_LIBRARIES}
 )
@@ -224,4 +233,3 @@ target_link_libraries(test_node
 
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
-

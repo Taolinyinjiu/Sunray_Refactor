@@ -25,7 +25,8 @@
 namespace px4_data {
 // 控制模式结构体，使用class强类型枚举
 enum class FlightMode : uint8_t {
-  MANUAL = 0,    // 手动模式
+  UNDEFINED = 0,  // 未定义的状态
+  MANUAL,    // 手动模式
   ACRO,          // 特技模式
   ALTCTL,        // 定高模式
   POSCTL,        // 定点模式
@@ -54,7 +55,7 @@ struct system_state_ {
   bool connected;            // 无人机是否响应mavros心跳包 or px4是否连接成功
   bool armed;                // 无人机是否解锁
   bool rc_input;             // 无人机是否连接到遥控器
-  float system_load;         // 无人机飞控cpu负载
+  uint8_t system_load;         // 无人机飞控cpu负载，由于其不可能为超过100的值，因此使用uint8_t
   float voltage;             // 无人机电池电压
   float current;             // 无人机电池电流
   float percent;             // 无人机电池百分比

@@ -22,7 +22,12 @@
 #include "px4_datatypes.h"
 #include "utils/opflow_ringbuffer.hpp"
 #include "ros/node_handle.h"
+#include "mavros_msgs/ParamGet.h"
+#include <algorithm>
 #include <cstdint>
+#include <functional>
+#include <mutex>
+#include <string>
 
 // 设计一个reader_list_结构体，变量使用bool类型，用于表示PX4_Reader实例需要读取的数据类型，默认全部不订阅，要求用户按需求进行订阅
 struct reader_list_ {
@@ -41,11 +46,30 @@ struct reader_list_ {
   reader_list_() { disable_all(); };
 
   void enable_all() {
-    // std::fill 方法要求结构体全部由bool类型组成
-    std::fill(&read_system_state, &read_position_param + 1, true);
+    read_system_state = true;
+    read_ekf2_state = true;
+    read_flow_state = true;
+    read_localpose = true;
+    read_localvel = true;
+    read_bodypose = true;
+    read_bodyvel = true;
+    read_ekf2_param = true;
+    read_attitude_param = true;
+    read_velocity_param = true;
+    read_position_param = true;
   }
   void disable_all() {
-    std::fill(&read_system_state, &read_position_param + 1, false);
+    read_system_state = false;
+    read_ekf2_state = false;
+    read_flow_state = false;
+    read_localpose = false;
+    read_localvel = false;
+    read_bodypose = false;
+    read_bodyvel = false;
+    read_ekf2_param = false;
+    read_attitude_param = false;
+    read_velocity_param = false;
+    read_position_param = false;
   }
 };
 
@@ -70,16 +94,28 @@ public:
   // fetch前缀，实时调用mavros服务，得到参数后才返回，需要等待，也就是阻塞
   px4_data::ekf2_param_ fetch_ekf2_param(void);
   px4_data::attitude_param_ fetch_attitude_param(void);
-  px4_data::attitude_param_ fetch_velocity_param(void);
-  px4_data::attitude_param_ fetch_position_param(void);
+  px4_data::velocity_param_ fetch_velocity_param(void);
+  px4_data::position_param_ fetch_position_param(void);
 
   static px4_data::FlightMode flightmode_fromString(const std::string &mode);
 
 private:
+  // 初始化所有状态的默认值，避免首次回调前读取到未定义数据
+  void resetStateDefaults();
   // 系统状态互斥锁 (使用 mutable 允许在 const 函数中使用)
   mutable std::mutex system_state_mtx;
+  // ekf2状态互斥锁
+  mutable std::mutex ekf2_state_mtx;
   // 光流原始数据互斥锁
   mutable std::mutex opflow_mtx;
+  // local系位姿互斥锁
+  mutable std::mutex local_pose_mtx;
+  // local系速度互斥锁
+  mutable std::mutex local_velocity_mtx;
+  // body系姿态互斥锁
+  mutable std::mutex body_pose_mtx;
+  // body系速度互斥锁
+  mutable std::mutex body_velocity_mtx;
   // 是否成功读取到无人机id
   int uav_id;
   std::string uav_name;
@@ -101,8 +137,6 @@ private:
   px4_data::pose_ body_pose;
   // 机体系速度
   px4_data::velocity_ body_velocity;
-	// 机体系下的里程计
-	px4_data::odom_ body_odom;
   // ekf2相关参数
   px4_data::ekf2_param_ ekf2_param;
   // 姿态控制器相关参数
@@ -117,7 +151,6 @@ private:
     ros::Subscriber PX4_Reader::* handle;   // 指向句柄的成员指针
     std::function<ros::Subscriber()> make; // 订阅执行器
   };
-
   // 订阅者
   ros::Subscriber state_sub_;
   ros::Subscriber exstate_sub_;
@@ -139,4 +172,10 @@ private:
   void bodyAttCallback(const sensor_msgs::Imu::ConstPtr &msg);
   void bodyVelCallback(const geometry_msgs::TwistStamped::ConstPtr &msg);
   // 服务端
+  ros::NodeHandle nh_;
+  ros::ServiceClient param_get_client_;
+
+  void initServiceClients();
+  bool fetchParamInt(const std::string& param_name, int& out_value);
+  bool fetchParamFloat(const std::string& param_name, float& out_value);
 };
