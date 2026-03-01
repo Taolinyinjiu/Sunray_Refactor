@@ -20,6 +20,7 @@
 #include "mavros_eigen_conversions.h"
 // #include "px4_data.h"
 #include "px4_datatypes.h"
+#include "utils/opflow_ringbuffer.hpp"
 #include "ros/node_handle.h"
 #include <cstdint>
 
@@ -61,7 +62,7 @@ public:
   // get前缀，立即返回
   px4_data::system_state_ get_system_state(void);
   px4_data::ekf2_state_ get_ekf2_state(void);
-  px4_data::opflow_state_ get_flow_state(void);
+  px4_data::opflow_state_ get_flow_state(void);     // 该函数得到的是环形缓冲区输出的光流数据而非光流原始的数据
   px4_data::pose_ get_local_pose(void);
   px4_data::velocity_ get_local_velocity(void);
   px4_data::pose_ get_body_pose(void);
@@ -75,8 +76,10 @@ public:
   static px4_data::FlightMode flightmode_fromString(const std::string &mode);
 
 private:
-  // 互斥锁 (使用 mutable 允许在 const 函数中使用)
+  // 系统状态互斥锁 (使用 mutable 允许在 const 函数中使用)
   mutable std::mutex system_state_mtx;
+  // 光流原始数据互斥锁
+  mutable std::mutex opflow_mtx;
   // 是否成功读取到无人机id
   int uav_id;
   std::string uav_name;
@@ -84,16 +87,22 @@ private:
   px4_data::system_state_ system_state;
   // ekf2估计状态
   px4_data::ekf2_state_ ekf2_state;
-  // TODO:光流数据(原始)，maybe需要修改为圆形缓冲区
+  // 光流数据(原始，保留最近一帧用于调试或回溯)
   px4_data::opflow_raw_ opflow_raw;
+  // 光流环形缓冲区（用于滤波与窗口统计）
+  Opflow_Buffer opflow_buffer_{32};
   // 惯性系位置与姿态
   px4_data::pose_ local_pose;
   // 惯性系速度
   px4_data::velocity_ local_velocity;
+	// 惯性系下里程计
+	px4_data::odom_ local_odom;
   // 机体系姿态
   px4_data::pose_ body_pose;
   // 机体系速度
   px4_data::velocity_ body_velocity;
+	// 机体系下的里程计
+	px4_data::odom_ body_odom;
   // ekf2相关参数
   px4_data::ekf2_param_ ekf2_param;
   // 姿态控制器相关参数
