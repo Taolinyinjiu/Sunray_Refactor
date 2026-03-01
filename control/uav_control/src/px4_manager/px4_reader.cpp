@@ -2,6 +2,34 @@
 
 #include <vector>
 
+void reader_list_::enable_all() {
+  read_system_state = true;
+  read_ekf2_state = true;
+  read_flow_state = true;
+  read_localpose = true;
+  read_localvel = true;
+  read_bodypose = true;
+  read_bodyvel = true;
+  read_ekf2_param = true;
+  read_attitude_param = true;
+  read_velocity_param = true;
+  read_position_param = true;
+}
+
+void reader_list_::disable_all() {
+  read_system_state = false;
+  read_ekf2_state = false;
+  read_flow_state = false;
+  read_localpose = false;
+  read_localvel = false;
+  read_bodypose = false;
+  read_bodyvel = false;
+  read_ekf2_param = false;
+  read_attitude_param = false;
+  read_velocity_param = false;
+  read_position_param = false;
+}
+
 void PX4_Reader::resetStateDefaults() {
   uav_id = 0;
   uav_name.clear();

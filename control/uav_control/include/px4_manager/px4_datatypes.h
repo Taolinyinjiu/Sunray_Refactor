@@ -21,6 +21,7 @@
 
 #include "mavros_msgs/OpticalFlowRad.h"
 #include "ros/time.h"
+
 // 使用命名空间？or不使用
 namespace px4_data {
 // 控制模式结构体，使用class强类型枚举
@@ -55,7 +56,7 @@ struct system_state_ {
   bool connected;            // 无人机是否响应mavros心跳包 or px4是否连接成功
   bool armed;                // 无人机是否解锁
   bool rc_input;             // 无人机是否连接到遥控器
-  uint8_t system_load;         // 无人机飞控cpu负载，由于其不可能为超过100的值，因此使用uint8_t
+  uint8_t system_load;         // 无人机飞控cpu负载，由于其不可能为超过100的值，因此使用uint8_
   float voltage;             // 无人机电池电压
   float current;             // 无人机电池电流
   float percent;             // 无人机电池百分比
