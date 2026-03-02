@@ -1,44 +1,44 @@
-#include "px4_manager/px4_reader.h"
+#include "px4_manager/px4_data_reader.h"
 
 #include "ros/console.h"
 #include "ros/ros.h"
 
 int main(int argc, char** argv) {
-  ros::init(argc, argv, "px4_reader_test_node");
+  ros::init(argc, argv, "px4_data_reader_test_node");
   ros::NodeHandle nh;
 
   // 固定测试参数（按你的要求）
   nh.setParam("uav_id", 1);
   nh.setParam("uav_name", std::string("uav"));
 
-  reader_list_ enable_list;
-  enable_list.read_system_state = true;
-  enable_list.read_ekf2_state = true;
-  enable_list.read_flow_state = true;
-  enable_list.read_localpose = true;
-  enable_list.read_localvel = true;
-  enable_list.read_bodypose = true;
-  enable_list.read_bodyvel = true;
+  ReaderOptions options;
+  options.read_system_state = true;
+  options.read_ekf2_state = true;
+  options.read_flow_state = true;
+  options.read_local_pose = true;
+  options.read_local_velocity = true;
+  options.read_body_pose = true;
+  options.read_body_velocity = true;
 
-  PX4_Reader reader(nh, enable_list);
+  Px4DataReader reader(nh, options);
 
-  ROS_INFO("px4_reader_test_node started. Expect MAVROS topics under /uav1/...");
+  ROS_INFO("px4_data_reader_test_node started. Expect MAVROS topics under /uav1/...");
 
   ros::Rate rate(10.0);
   while (ros::ok()) {
     ros::spinOnce();
 
-    const px4_data::system_state_ sys = reader.get_system_state();
-    const px4_data::ekf2_state_ ekf2 = reader.get_ekf2_state();
-    const px4_data::opflow_state_ flow = reader.get_flow_state();
-    const px4_data::pose_ local_pose = reader.get_local_pose();
-    const px4_data::velocity_ local_vel = reader.get_local_velocity();
-    const px4_data::pose_ body_pose = reader.get_body_pose();
-    const px4_data::velocity_ body_vel = reader.get_body_velocity();
-    const px4_data::ekf2_param_ ekf2_param = reader.fetch_ekf2_param();
-    const px4_data::attitude_param_ att_param = reader.fetch_attitude_param();
-    const px4_data::velocity_param_ vel_param = reader.fetch_velocity_param();
-    const px4_data::position_param_ pos_param = reader.fetch_position_param();
+    const px4_data::SystemState sys = reader.get_system_state();
+    const px4_data::Ekf2State ekf2 = reader.get_ekf2_state();
+    const px4_data::OpticalFlowState flow = reader.get_flow_state();
+    const px4_data::Pose local_pose = reader.get_local_pose();
+    const px4_data::Velocity local_vel = reader.get_local_velocity();
+    const px4_data::Pose body_pose = reader.get_body_pose();
+    const px4_data::Velocity body_vel = reader.get_body_velocity();
+    const px4_data::Ekf2Params ekf2_params = reader.fetch_ekf2_params();
+    const px4_data::AttitudeParams att_param = reader.fetch_attitude_params();
+    const px4_data::VelocityParams vel_param = reader.fetch_velocity_params();
+    const px4_data::PositionParams pos_param = reader.fetch_position_params();
 
     ROS_INFO_THROTTLE(
         1.0,
@@ -78,7 +78,7 @@ int main(int argc, char** argv) {
     ROS_INFO_THROTTLE(
         2.0,
         "[PARAM-EKF2] EV_CTRL=%d HGT_REF=%d EV_DELAY=%.3f",
-        ekf2_param.ev_ctrl, ekf2_param.hgt_ref, ekf2_param.ev_delay);
+        ekf2_params.ev_ctrl, ekf2_params.hgt_ref, ekf2_params.ev_delay);
 
     ROS_INFO_THROTTLE(
         2.0,

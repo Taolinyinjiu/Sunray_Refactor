@@ -1,0 +1,5 @@
+flight_command_arbiter
+该类旨在实现Sunray项目中，不同优先级的对px4输出的仲裁
+具体来说
+- px4_manager需要实现切换到OFFBOARD的功能，但是PX4要求切换到OFFBOARD需要至少2Hz的稳定控制流，因此px4_manager需要一个有效的手段，向px4发布控制流信息，但是这个控制流信息不能干扰到后续controller的输出，因此这里需要一个仲裁器，也就是arbiter来接收px4_manager对电机怠速推力输出的要求
+- 

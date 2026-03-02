@@ -16,7 +16,7 @@
 #include <stdexcept>
 #include <vector>
 
-#include "px4_manager/px4_datatypes.h"
+#include "px4_manager/px4_data_types.h"
 
 /**
  * @brief 光流环形缓冲区最小存储单元
@@ -44,10 +44,10 @@ struct opflow_sample {
    * @brief 从原始光流消息构造样本
    * @param opflow_raw PX4/MAVROS 光流原始数据
    */
-  explicit opflow_sample(const px4_data::opflow_raw_ &opflow_raw);
+  explicit opflow_sample(const px4_data::OpticalFlowRaw &opflow_raw);
 };
 
-inline opflow_sample::opflow_sample(const px4_data::opflow_raw_ &opflow_raw) {
+inline opflow_sample::opflow_sample(const px4_data::OpticalFlowRaw &opflow_raw) {
   timestamp = opflow_raw.timestamp;
   quality = opflow_raw.quality;
   distance = opflow_raw.distance;
@@ -82,7 +82,7 @@ public:
    * @param raw 原始光流数据
    * @return true 写入成功；false 数据不合法
    */
-  bool push(const px4_data::opflow_raw_ &raw) { return push(opflow_sample(raw)); }
+  bool push(const px4_data::OpticalFlowRaw &raw) { return push(opflow_sample(raw)); }
 
   /**
    * @brief 写入样本数据

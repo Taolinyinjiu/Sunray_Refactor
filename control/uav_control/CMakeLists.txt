@@ -141,6 +141,14 @@ target_link_libraries(px4_manager_lib INTERFACE
 	${EIGEN3_LIBRARIES}
 )
 
+add_library(flight_command_arbiter_lib
+  src/flight_command_arbiter/flight_command_arbiter.cpp
+)
+target_link_libraries(flight_command_arbiter_lib
+  ${catkin_LIBRARIES}
+  ${EIGEN3_LIBRARIES}
+)
+
 
 # target_link_libraries(utils_lib
 # 	${catkin_LIBRARIES}
@@ -153,19 +161,65 @@ target_link_libraries(px4_manager_lib INTERFACE
 # add_dependencies(${PROJECT_NAME} ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Declare a C++ executable
-add_executable(px4_reader_test_node
-  src/px4_manager/px4_reader_test_node.cpp
-  src/px4_manager/px4_reader.cpp
-  src/px4_manager/px4_reader_callback.cpp
-  src/px4_manager/px4_datatypes.cpp
+add_executable(px4_data_reader_test_node
+  src/px4_manager/px4_data_reader_test_node.cpp
+  src/px4_manager/px4_data_reader.cpp
+  src/px4_manager/px4_data_reader_callback.cpp
+  src/px4_manager/px4_data_types.cpp
   src/px4_manager/mavros_eigen_conversions.cpp
 )
 
 ## Add cmake target dependencies of the executable
-add_dependencies(px4_reader_test_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(px4_data_reader_test_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Specify libraries to link the executable against
-target_link_libraries(px4_reader_test_node
+target_link_libraries(px4_data_reader_test_node
+  ${catkin_LIBRARIES}
+  ${EIGEN3_LIBRARIES}
+)
+
+add_executable(px4_manager_test_node
+  src/px4_manager/px4_manager_test_node.cpp
+  src/px4_manager/px4_manager.cpp
+)
+
+add_dependencies(px4_manager_test_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
+target_link_libraries(px4_manager_test_node
+  ${catkin_LIBRARIES}
+  ${EIGEN3_LIBRARIES}
+)
+
+add_executable(px4_param_manager_test_node
+  src/px4_manager/px4_param_manager_test_node.cpp
+  src/px4_manager/px4_param_manager.cpp
+)
+
+add_dependencies(px4_param_manager_test_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
+target_link_libraries(px4_param_manager_test_node
+  ${catkin_LIBRARIES}
+  ${EIGEN3_LIBRARIES}
+)
+
+add_executable(nsh_mavlink_test_node
+  src/px4_manager/nsh_mavlink_test_node.cpp
+)
+
+add_dependencies(nsh_mavlink_test_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
+target_link_libraries(nsh_mavlink_test_node
+  ${catkin_LIBRARIES}
+  ${EIGEN3_LIBRARIES}
+)
+
+add_executable(nsh_proxy_terminal_node
+  src/px4_manager/nsh_proxy_terminal_node.cpp
+)
+
+add_dependencies(nsh_proxy_terminal_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
+target_link_libraries(nsh_proxy_terminal_node
   ${catkin_LIBRARIES}
   ${EIGEN3_LIBRARIES}
 )
