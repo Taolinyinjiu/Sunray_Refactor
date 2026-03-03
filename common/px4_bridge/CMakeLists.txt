@@ -137,6 +137,45 @@ target_link_libraries(px4_bridge
   ${EIGEN3_LIBRARIES}
 )
 
+#############
+## Testing ##
+#############
+if(CATKIN_ENABLE_TESTING)
+  catkin_add_gtest(px4_bridge_param_types_ut
+    test/unit/test_px4_param_types.cpp
+  )
+  if(TARGET px4_bridge_param_types_ut)
+    target_link_libraries(px4_bridge_param_types_ut
+      ${catkin_LIBRARIES}
+      ${EIGEN3_LIBRARIES}
+    )
+  endif()
+
+  catkin_add_gtest(px4_bridge_data_reader_ut
+    test/unit/test_px4_data_reader.cpp
+    src/px4_data_reader.cpp
+    src/px4_data_reader_callback.cpp
+  )
+  if(TARGET px4_bridge_data_reader_ut)
+    target_link_libraries(px4_bridge_data_reader_ut
+      ${catkin_LIBRARIES}
+      ${EIGEN3_LIBRARIES}
+    )
+  endif()
+
+  catkin_add_gtest(px4_bridge_reader_param_integration
+    test/integration/test_px4_data_reader_param_fetch.cpp
+    src/px4_data_reader.cpp
+    src/px4_data_reader_callback.cpp
+  )
+  if(TARGET px4_bridge_reader_param_integration)
+    target_link_libraries(px4_bridge_reader_param_integration
+      ${catkin_LIBRARIES}
+      ${EIGEN3_LIBRARIES}
+    )
+  endif()
+endif()
+
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries
 ## either from message generation or dynamic reconfigure
@@ -203,16 +242,3 @@ target_link_libraries(px4_bridge
 #   # myfile2
 #   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 # )
-
-#############
-## Testing ##
-#############
-
-## Add gtest based cpp test target and link libraries
-# catkin_add_gtest(${PROJECT_NAME}-test test/test_px4_bridge.cpp)
-# if(TARGET ${PROJECT_NAME}-test)
-#   target_link_libraries(${PROJECT_NAME}-test ${PROJECT_NAME})
-# endif()
-
-## Add folders to be run by python nosetests
-# catkin_add_nosetests(test)

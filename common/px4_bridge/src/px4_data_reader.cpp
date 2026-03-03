@@ -104,8 +104,10 @@ bool PX4_DataReader::fetch_param_int(const std::string &param_name,
     return false;
   }
 
-  if (!param_get_client_.exists()) {
-    param_get_client_.waitForExistence(ros::Duration(1.0));
+  if (!param_get_client_.exists() &&
+      !param_get_client_.waitForExistence(ros::Duration(1.0))) {
+    ROS_WARN("param_get service is unavailable for %s", param_name.c_str());
+    return false;
   }
 
   mavros_msgs::ParamGet srv;
@@ -131,8 +133,10 @@ bool PX4_DataReader::fetch_param_float(const std::string &param_name,
     return false;
   }
 
-  if (!param_get_client_.exists()) {
-    param_get_client_.waitForExistence(ros::Duration(1.0));
+  if (!param_get_client_.exists() &&
+      !param_get_client_.waitForExistence(ros::Duration(1.0))) {
+    ROS_WARN("param_get service is unavailable for %s", param_name.c_str());
+    return false;
   }
 
   mavros_msgs::ParamGet srv;

@@ -76,6 +76,9 @@ def _json(handler: BaseHTTPRequestHandler, code: int, payload: Dict[str, Any]) -
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     handler.send_response(code)
     handler.send_header("Content-Type", "application/json; charset=utf-8")
+    handler.send_header("Access-Control-Allow-Origin", "*")
+    handler.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+    handler.send_header("Access-Control-Allow-Headers", "Content-Type")
     handler.send_header("Content-Length", str(len(data)))
     handler.end_headers()
     handler.wfile.write(data)
@@ -96,6 +99,14 @@ def make_handler(bridge: Px4ParamApiBridge):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, fmt: str, *args: Any) -> None:
             rospy.loginfo("HTTP " + fmt, *args)
+
+        def do_OPTIONS(self) -> None:  # noqa: N802
+            self.send_response(204)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.send_header("Access-Control-Max-Age", "600")
+            self.end_headers()
 
         def do_GET(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
@@ -174,4 +185,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
