@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Merge multiple compile_commands.json files into one.
+"""合并多个 compile_commands.json 文件。
 
 Usage:
   1) Auto-scan build subdirectories (default):
@@ -25,26 +25,31 @@ from typing import Iterable, List
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Merge compile_commands.json files")
+    parser = argparse.ArgumentParser(description="合并 compile_commands.json 文件")
     parser.add_argument(
         "inputs",
         nargs="*",
         help=(
-            "Build subdirectory name (e.g. uav_control), a directory path, "
-            "or a compile_commands.json path. If empty, auto-scan build dir."
+            "构建子目录名（如 uav_control）、目录路径或 compile_commands.json 路径。"
+            "若为空，则自动扫描 build 目录。"
         ),
     )
     parser.add_argument(
         "-o",
         "--output",
         default="compile_commands.json",
-        help="Output path for merged compile_commands.json",
+        help="合并后输出路径（默认：./compile_commands.json）",
     )
     parser.add_argument(
         "-b",
         "--build-dir",
         default="build",
-        help="Build root dir for default scan and subdir-name resolution",
+        help="构建根目录（默认：./build）",
+    )
+    parser.add_argument(
+        "--verbose-missing",
+        action="store_true",
+        help="（兼容保留）自动扫描时输出缺失 compile_commands.json 的一级目录。",
     )
     return parser.parse_args()
 
@@ -52,7 +57,27 @@ def _parse_args() -> argparse.Namespace:
 def _discover_default(build_dir: Path) -> List[Path]:
     if not build_dir.exists():
         return []
-    return sorted(p for p in build_dir.glob("*/compile_commands.json") if p.is_file())
+    # Recursively discover compile databases under build/, not only one level.
+    found = [p for p in build_dir.rglob("compile_commands.json") if p.is_file()]
+    # Stable de-dup after resolve (handles symlink/redundant paths).
+    unique: List[Path] = []
+    seen = set()
+    for p in sorted(found):
+        rp = p.resolve()
+        if rp not in seen:
+            unique.append(rp)
+            seen.add(rp)
+    return unique
+
+
+def _discover_missing_first_level(build_dir: Path) -> List[Path]:
+    if not build_dir.exists():
+        return []
+    missing: List[Path] = []
+    for child in sorted(p for p in build_dir.iterdir() if p.is_dir()):
+        if not (child / "compile_commands.json").is_file():
+            missing.append(child.resolve())
+    return missing
 
 
 def _resolve_inputs(raw_inputs: Iterable[str], build_dir: Path) -> List[Path]:
@@ -74,7 +99,7 @@ def _resolve_inputs(raw_inputs: Iterable[str], build_dir: Path) -> List[Path]:
         found = next((c for c in candidates if c.is_file()), None)
         if found is None:
             raise FileNotFoundError(
-                f"Cannot resolve compile_commands.json from input '{item}'"
+                f"无法从输入 '{item}' 解析到 compile_commands.json"
             )
         resolved.append(found)
 
@@ -93,13 +118,13 @@ def _load_entries(path: Path) -> List[dict]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        raise ValueError(f"Invalid JSON in '{path}': {exc}") from exc
+        raise ValueError(f"'{path}' 不是合法 JSON：{exc}") from exc
     if not isinstance(data, list):
-        raise ValueError(f"Expected a JSON array in '{path}'")
+        raise ValueError(f"'{path}' 顶层必须是 JSON 数组")
     out = []
     for idx, entry in enumerate(data):
         if not isinstance(entry, dict):
-            raise ValueError(f"Entry #{idx} in '{path}' is not a JSON object")
+            raise ValueError(f"'{path}' 中第 {idx} 项不是 JSON 对象")
         out.append(entry)
     return out
 
@@ -113,11 +138,18 @@ def main() -> int:
         inputs = _resolve_inputs(args.inputs, build_dir)
     else:
         inputs = _discover_default(build_dir)
+        # 默认输出缺失目录；--verbose-missing 仅作向后兼容开关保留。
+        missing = _discover_missing_first_level(build_dir)
+        if missing:
+            print("以下一级构建目录缺少 compile_commands.json：")
+            for p in missing:
+                print(f"  - {p}")
+        else:
+            print("一级构建目录均已包含 compile_commands.json。")
 
     if not inputs:
         print(
-            f"No compile_commands.json found. "
-            f"Build dir checked: {build_dir}",
+            f"未找到可合并的 compile_commands.json，已检查目录：{build_dir}",
             file=sys.stderr,
         )
         return 1
@@ -136,10 +168,10 @@ def main() -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-    print(f"Merged {len(inputs)} files -> {output}")
+    print(f"已合并 {len(inputs)} 个文件 -> {output}")
     for p in inputs:
         print(f"  - {p}")
-    print(f"Total entries: {len(result)}")
+    print(f"合并后条目数：{len(result)}")
     return 0
 
 

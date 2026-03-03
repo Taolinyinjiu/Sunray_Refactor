@@ -15,7 +15,17 @@ modules:
     source_path: "common/px4_bridge"
     build_path: "build/px4_bridge"
     dependencies: []
-
+  # Sunray 重构中的demo
+  px4_web_api_demo:
+    description: "Sunray 重构中的测试demo"
+    source_path: "common/px4_web_api_demo"
+    build_path: "build/px4_web_api_demo"
+    dependencies: []
+  px4_web_ui_demo:
+    description: "Sunray 重构中的测试demo"
+    source_path: "common/px4_web_ui_demo"
+    build_path: "build/px4_web_ui_demo"
+    dependencies: []
   # 基础通用模块
   sunray_common:
     description: "通用库模块，包括通用头文件、自定义ROS消息"
