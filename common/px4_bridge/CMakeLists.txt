@@ -1,25 +1,26 @@
 cmake_minimum_required(VERSION 3.0.2)
-project(uav_control)
+project(px4_bridge)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
-add_compile_options(-std=c++11)
-
+# add_compile_options(-std=c++11)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+find_package(Eigen3 REQUIRED)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
-find_package(Eigen3 REQUIRED)
+find_package(catkin REQUIRED COMPONENTS
+  geometry_msgs
+  mavros_msgs
+  nav_msgs
+  roscpp
+  sensor_msgs
+  std_msgs
+)
+
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
-find_package(catkin REQUIRED COMPONENTS
-  roscpp
-  std_msgs
-  nav_msgs
-  geometry_msgs
-  sensor_msgs
-  mavros_msgs
-)
+
 
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
@@ -74,7 +75,7 @@ find_package(catkin REQUIRED COMPONENTS
 ## Generate added messages and services with any dependencies listed here
 # generate_messages(
 #   DEPENDENCIES
-#   std_msgs  # Or other packages containing msgs
+#   geometry_msgs#   mavros_msgs#   nav_msgs#   sensor_msgs#   std_msgs
 # )
 
 ################################################
@@ -107,10 +108,10 @@ find_package(catkin REQUIRED COMPONENTS
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
-#  INCLUDE_DIRS include
-#  LIBRARIES UAV_Controller
-#  CATKIN_DEPENDS other_catkin_pkg
-#  DEPENDS system_lib
+  INCLUDE_DIRS include
+  LIBRARIES px4_bridge
+  CATKIN_DEPENDS geometry_msgs mavros_msgs nav_msgs roscpp sensor_msgs std_msgs
+  DEPENDS EIGEN3
 )
 
 ###########
@@ -120,40 +121,21 @@ catkin_package(
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
 include_directories(
-	include
-	${catkin_INCLUDE_DIRS}
-	${EIGEN3_INCLUDE_DIRS}
+  include
+  ${catkin_INCLUDE_DIRS}
+  ${EIGEN3_INCLUDE_DIRS}
 )
 
-## Declare a C++ library
-# add_library(utils_lib
-#   utils/uav_state_estimate.hpp
-# 	utils/geometry_eigen_conversions.hpp
-# )
-
-add_library(px4_manager_lib INTERFACE)
-target_include_directories(px4_manager_lib INTERFACE
-	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-	$<INSTALL_INTERFACE:include>
-)
-target_link_libraries(px4_manager_lib INTERFACE
-	${catkin_LIBRARIES}
-	${EIGEN3_LIBRARIES}
+add_library(px4_bridge
+  src/px4_data_reader.cpp
+  src/px4_data_reader_callback.cpp
+  src/px4_param_manager.cpp
 )
 
-add_library(flight_command_arbiter_lib
-  src/flight_command_arbiter/flight_command_arbiter.cpp
-)
-target_link_libraries(flight_command_arbiter_lib
+target_link_libraries(px4_bridge
   ${catkin_LIBRARIES}
   ${EIGEN3_LIBRARIES}
 )
-
-
-# target_link_libraries(utils_lib
-# 	${catkin_LIBRARIES}
-# )
-
 
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries
@@ -161,71 +143,15 @@ target_link_libraries(flight_command_arbiter_lib
 # add_dependencies(${PROJECT_NAME} ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Declare a C++ executable
-add_executable(px4_data_reader_test_node
-  src/px4_manager/px4_data_reader_test_node.cpp
-  src/px4_manager/px4_data_reader.cpp
-  src/px4_manager/px4_data_reader_callback.cpp
-  src/px4_manager/mavros_eigen_conversions.cpp
-)
+## With catkin_make all packages are built within a single CMake context
+## The recommended prefix ensures that target names across packages don't collide
+# add_executable(${PROJECT_NAME}_node src/px4_bridge_node.cpp)
 
-## Add cmake target dependencies of the executable
-add_dependencies(px4_data_reader_test_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-
-## Specify libraries to link the executable against
-target_link_libraries(px4_data_reader_test_node
-  ${catkin_LIBRARIES}
-  ${EIGEN3_LIBRARIES}
-)
-
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/px4_manager/px4_manager_test_node.cpp")
-  add_executable(px4_manager_test_node
-    src/px4_manager/px4_manager_test_node.cpp
-    src/px4_manager/px4_manager.cpp
-  )
-
-  add_dependencies(px4_manager_test_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-
-  target_link_libraries(px4_manager_test_node
-    ${catkin_LIBRARIES}
-    ${EIGEN3_LIBRARIES}
-  )
-endif()
-
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/px4_manager/px4_param_manager_test_node.cpp")
-  add_executable(px4_param_manager_test_node
-    src/px4_manager/px4_param_manager_test_node.cpp
-    src/px4_manager/px4_param_manager.cpp
-  )
-
-  add_dependencies(px4_param_manager_test_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-
-  target_link_libraries(px4_param_manager_test_node
-    ${catkin_LIBRARIES}
-    ${EIGEN3_LIBRARIES}
-  )
-endif()
-
-add_executable(nsh_mavlink_test_node
-  src/px4_manager/nsh_mavlink_test_node.cpp
-)
-
-add_dependencies(nsh_mavlink_test_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-
-target_link_libraries(nsh_mavlink_test_node
-  ${catkin_LIBRARIES}
-  ${EIGEN3_LIBRARIES}
-)
-
-add_executable(nsh_proxy_terminal_node
-  src/px4_manager/nsh_proxy_terminal_node.cpp
-)
-
-add_dependencies(nsh_proxy_terminal_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-
-target_link_libraries(nsh_proxy_terminal_node
-  ${catkin_LIBRARIES}
-  ${EIGEN3_LIBRARIES}
-)
+## Rename C++ executable without prefix
+## The above recommended prefix causes long target names, the following renames the
+## target back to the shorter version for ease of user use
+## e.g. "rosrun someones_pkg node" instead of "rosrun someones_pkg someones_pkg_node"
+# set_target_properties(${PROJECT_NAME}_node PROPERTIES OUTPUT_NAME node PREFIX "")
 
 ## Add cmake target dependencies of the executable
 ## same as for the library above
@@ -282,29 +208,11 @@ target_link_libraries(nsh_proxy_terminal_node
 ## Testing ##
 #############
 
-if(CATKIN_ENABLE_TESTING)
-  catkin_add_gtest(uav_control_px4_param_types_ut
-    test/unit/test_px4_param_types.cpp
-  )
-  if(TARGET uav_control_px4_param_types_ut)
-    target_link_libraries(uav_control_px4_param_types_ut
-      ${catkin_LIBRARIES}
-      ${EIGEN3_LIBRARIES}
-    )
-  endif()
-
-  catkin_add_gtest(uav_control_px4_data_reader_ut
-    test/unit/test_px4_data_reader.cpp
-    src/px4_manager/px4_data_reader.cpp
-    src/px4_manager/px4_data_reader_callback.cpp
-  )
-  if(TARGET uav_control_px4_data_reader_ut)
-    target_link_libraries(uav_control_px4_data_reader_ut
-      ${catkin_LIBRARIES}
-      ${EIGEN3_LIBRARIES}
-    )
-  endif()
-endif()
+## Add gtest based cpp test target and link libraries
+# catkin_add_gtest(${PROJECT_NAME}-test test/test_px4_bridge.cpp)
+# if(TARGET ${PROJECT_NAME}-test)
+#   target_link_libraries(${PROJECT_NAME}-test ${PROJECT_NAME})
+# endif()
 
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)

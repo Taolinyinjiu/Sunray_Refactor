@@ -1,4 +1,11 @@
-#include "px4_manager/px4_param_manager.h"
+/**
+ * @file px4_param_manager.cpp
+ * @brief PX4 参数管理器实现。
+ *
+ * 本文件实现参数写入、NSH 命令交互与 EKF2 重启流程。
+ */
+
+#include "px4_bridge/px4_param_manager.h"
 
 #include "mavros_msgs/ParamSet.h"
 #include "mavros_msgs/mavlink_convert.h"
@@ -16,6 +23,10 @@
 #include <stdexcept>
 #include <string>
 
+/**
+ * @brief 构造参数管理器并初始化 ROS 通信对象。
+ * @param nh ROS 节点句柄
+ */
 PX4_ParamManager::PX4_ParamManager(ros::NodeHandle nh)
     : ansi_re_("\\x1b\\[[0-9;?]*[A-Za-z]"),
       ctrl_re_("[^\\x09\\x0a\\x0d\\x20-\\x7e]") {
@@ -49,43 +60,251 @@ PX4_ParamManager::PX4_ParamManager(ros::NodeHandle nh)
   initialized_ = true;
 }
 
-// EKF2 参数设置入口：
-// - 每个字段先判断是否需要设置（-1 表示跳过）；
-// - 任一写入失败立即返回 false；
-// - 全部写入完成后执行 boot_ekf2()，保证参数生效。
-bool PX4_ParamManager::set_param_ekf2(px4_data::Ekf2Params ekf2_param_) {
-  bool set_flag = false;
-  std::string param_name = "null";
-
-  // 设置 EKF2_EV_CTRL（int）
-  if (ekf2_param_.ev_ctrl != -1) {
-    param_name = "EKF2_EV_CTRL";
-    set_flag = setParamInt(param_name, ekf2_param_.ev_ctrl);
-    if (set_flag == false)
-      return set_flag;
+/**
+ * @brief 设置 EKF2_HGT_REF 参数并重启 EKF2。
+ * @param hgt_ref 高度参考源参数
+ * @return true 成功，false 失败
+ */
+bool PX4_ParamManager::set_ekf2_hgt_ref(
+    const px4_param_types::EKF2_HGT_REF &hgt_ref) {
+  if (!setParamInt("EKF2_HGT_REF", hgt_ref.toInt())) {
+    return false;
   }
-
-  // 设置 EKF2_HGT_REF（int）
-  if (ekf2_param_.hgt_ref != -1) {
-    param_name = "EKF2_HGT_REF";
-    set_flag = setParamInt(param_name, ekf2_param_.hgt_ref);
-    if (set_flag == false)
-      return set_flag;
-  }
-
-  // 设置 EKF2_EV_DELAY（float）
-  if (ekf2_param_.ev_delay != -1) {
-    param_name = "EKF2_EV_DELAY";
-    set_flag = setParamFloat(param_name, ekf2_param_.ev_delay);
-    if (set_flag == false)
-      return set_flag;
-  }
-
-  // 参数写入完成后重启 ekf2，确保新值生效。
-  set_flag = boot_ekf2();
-  return set_flag;
+  return boot_ekf2();
 }
 
+/**
+ * @brief 设置 EKF2_EV_CTRL 参数并重启 EKF2。
+ * @param ev_ctrl 外部视觉融合控制参数
+ * @return true 成功，false 失败
+ */
+bool PX4_ParamManager::set_ekf2_ev_ctrl(
+    const px4_param_types::EKF2_EV_CTRL &ev_ctrl) {
+  if (!setParamInt("EKF2_EV_CTRL", ev_ctrl.toInt())) {
+    return false;
+  }
+  return boot_ekf2();
+}
+
+/**
+ * @brief 设置 EKF2_EV_DELAY 参数并重启 EKF2。
+ * @param ev_delay 外部视觉延迟参数
+ * @return true 成功，false 失败
+ */
+bool PX4_ParamManager::set_ekf2_ev_delay(
+    const px4_param_types::EKF2_EV_DELAY &ev_delay) {
+  if (!setParamFloat("EKF2_EV_DELAY", ev_delay.toFloat())) {
+    return false;
+  }
+  return boot_ekf2();
+}
+
+/**
+ * @brief 设置 EKF2_MAG_TYPE 参数并重启 EKF2。
+ * @param mag_type 磁力计融合模式参数
+ * @return true 成功，false 失败
+ */
+bool PX4_ParamManager::set_ekf2_mag_type(
+    const px4_param_types::EKF2_MAG_TYPE &mag_type) {
+  if (!setParamInt("EKF2_MAG_TYPE", mag_type.toInt())) {
+    return false;
+  }
+  return boot_ekf2();
+}
+
+/**
+ * @brief 设置 EKF2_MAG_CHECK 参数并重启 EKF2。
+ * @param mag_check 磁力计检查项参数
+ * @return true 成功，false 失败
+ */
+bool PX4_ParamManager::set_ekf2_mag_check(
+    const px4_param_types::EKF2_MAG_CHECK &mag_check) {
+  if (!setParamInt("EKF2_MAG_CHECK", mag_check.toInt())) {
+    return false;
+  }
+  return boot_ekf2();
+}
+
+/**
+ * @brief 设置 EKF2_GPS_CTRL 参数并重启 EKF2。
+ * @param gps_ctrl GPS 融合控制参数
+ * @return true 成功，false 失败
+ */
+bool PX4_ParamManager::set_ekf2_gps_ctrl(
+    const px4_param_types::EKF2_GPS_CTRL &gps_ctrl) {
+  if (!setParamInt("EKF2_GPS_CTRL", gps_ctrl.toInt())) {
+    return false;
+  }
+  return boot_ekf2();
+}
+
+/**
+ * @brief 设置 EKF2_GPS_CHECK 参数并重启 EKF2。
+ * @param gps_check GPS 质量检查参数
+ * @return true 成功，false 失败
+ */
+bool PX4_ParamManager::set_ekf2_gps_check(
+    const px4_param_types::EKF2_GPS_CHECK &gps_check) {
+  if (!setParamInt("EKF2_GPS_CHECK", gps_check.toInt())) {
+    return false;
+  }
+  return boot_ekf2();
+}
+
+/**
+ * @brief 设置 EKF2_GPS_DELAY 参数并重启 EKF2。
+ * @param gps_delay GPS 延迟参数
+ * @return true 成功，false 失败
+ */
+bool PX4_ParamManager::set_ekf2_gps_delay(
+    const px4_param_types::EKF2_GPS_DELAY &gps_delay) {
+  if (!setParamFloat("EKF2_GPS_DELAY", gps_delay.toFloat())) {
+    return false;
+  }
+  return boot_ekf2();
+}
+
+/**
+ * @brief 批量设置角速度环 PID 参数。
+ * @param rate_pid 角速度环参数
+ * @return true 成功，false 失败
+ */
+bool PX4_ParamManager::set_px4_rate_pid(
+    const px4_param_types::PX4_RATE_PID &rate_pid) {
+  bool touched = false;
+
+  if (rate_pid.roll.p.should_update) {
+    if (!setParamFloat("MC_ROLLRATE_P", rate_pid.roll.p.toFloat()))
+      return false;
+    touched = true;
+  }
+  if (rate_pid.roll.i.should_update) {
+    if (!setParamFloat("MC_ROLLRATE_I", rate_pid.roll.i.toFloat()))
+      return false;
+    touched = true;
+  }
+  if (rate_pid.roll.d.should_update) {
+    if (!setParamFloat("MC_ROLLRATE_D", rate_pid.roll.d.toFloat()))
+      return false;
+    touched = true;
+  }
+
+  if (rate_pid.pitch.p.should_update) {
+    if (!setParamFloat("MC_PITCHRATE_P", rate_pid.pitch.p.toFloat()))
+      return false;
+    touched = true;
+  }
+  if (rate_pid.pitch.i.should_update) {
+    if (!setParamFloat("MC_PITCHRATE_I", rate_pid.pitch.i.toFloat()))
+      return false;
+    touched = true;
+  }
+  if (rate_pid.pitch.d.should_update) {
+    if (!setParamFloat("MC_PITCHRATE_D", rate_pid.pitch.d.toFloat()))
+      return false;
+    touched = true;
+  }
+
+  if (rate_pid.yaw.p.should_update) {
+    if (!setParamFloat("MC_YAWRATE_P", rate_pid.yaw.p.toFloat()))
+      return false;
+    touched = true;
+  }
+  if (rate_pid.yaw.i.should_update) {
+    if (!setParamFloat("MC_YAWRATE_I", rate_pid.yaw.i.toFloat()))
+      return false;
+    touched = true;
+  }
+  if (rate_pid.yaw.d.should_update) {
+    if (!setParamFloat("MC_YAWRATE_D", rate_pid.yaw.d.toFloat()))
+      return false;
+    touched = true;
+  }
+
+  if (!touched) {
+    ROS_WARN("set_px4_rate_pid called but no gain is marked should_update");
+  }
+  return true;
+}
+
+/**
+ * @brief 批量设置速度环参数。
+ * @param velocity_pid 速度环参数
+ * @return true 成功，false 失败
+ */
+bool PX4_ParamManager::set_px4_velocity_pid(
+    const px4_param_types::PX4_VELOCITY_PID &velocity_pid) {
+  bool touched = false;
+
+  if (velocity_pid.xy.p_acc.should_update) {
+    if (!setParamFloat("MPC_XY_VEL_P_ACC", velocity_pid.xy.p_acc.toFloat()))
+      return false;
+    touched = true;
+  }
+  if (velocity_pid.xy.i_acc.should_update) {
+    if (!setParamFloat("MPC_XY_VEL_I_ACC", velocity_pid.xy.i_acc.toFloat()))
+      return false;
+    touched = true;
+  }
+  if (velocity_pid.xy.d_acc.should_update) {
+    if (!setParamFloat("MPC_XY_VEL_D_ACC", velocity_pid.xy.d_acc.toFloat()))
+      return false;
+    touched = true;
+  }
+
+  if (velocity_pid.z.p_acc.should_update) {
+    if (!setParamFloat("MPC_Z_VEL_P_ACC", velocity_pid.z.p_acc.toFloat()))
+      return false;
+    touched = true;
+  }
+  if (velocity_pid.z.i_acc.should_update) {
+    if (!setParamFloat("MPC_Z_VEL_I_ACC", velocity_pid.z.i_acc.toFloat()))
+      return false;
+    touched = true;
+  }
+  if (velocity_pid.z.d_acc.should_update) {
+    if (!setParamFloat("MPC_Z_VEL_D_ACC", velocity_pid.z.d_acc.toFloat()))
+      return false;
+    touched = true;
+  }
+
+  if (!touched) {
+    ROS_WARN(
+        "set_px4_velocity_pid called but no gain is marked should_update");
+  }
+  return true;
+}
+
+/**
+ * @brief 批量设置位置环参数。
+ * @param position_p 位置环参数
+ * @return true 成功，false 失败
+ */
+bool PX4_ParamManager::set_px4_position_p(
+    const px4_param_types::PX4_POSITION_P &position_p) {
+  bool touched = false;
+
+  if (position_p.xy_p.should_update) {
+    if (!setParamFloat("MPC_XY_P", position_p.xy_p.toFloat()))
+      return false;
+    touched = true;
+  }
+  if (position_p.z_p.should_update) {
+    if (!setParamFloat("MPC_Z_P", position_p.z_p.toFloat()))
+      return false;
+    touched = true;
+  }
+
+  if (!touched) {
+    ROS_WARN("set_px4_position_p called but no gain is marked should_update");
+  }
+  return true;
+}
+
+/**
+ * @brief 检查客户端与对象初始化状态。
+ * @return true 可继续执行，false 应中止
+ */
 bool PX4_ParamManager::ensure_client_ready(void) {
   // 初始化失败时，拒绝任何对外操作，避免出现“半初始化对象”行为不确定的问题。
   if (!initialized_) {
@@ -102,6 +321,12 @@ bool PX4_ParamManager::ensure_client_ready(void) {
   return true;
 }
 
+/**
+ * @brief 写入整型参数。
+ * @param name 参数名
+ * @param value 参数值
+ * @return true 成功，false 失败
+ */
 bool PX4_ParamManager::setParamInt(const std::string &name, int value) {
   if (!ensure_client_ready())
     return false;
@@ -117,6 +342,12 @@ bool PX4_ParamManager::setParamInt(const std::string &name, int value) {
   return srv.response.success;
 }
 
+/**
+ * @brief 写入浮点参数。
+ * @param name 参数名
+ * @param value 参数值
+ * @return true 成功，false 失败
+ */
 bool PX4_ParamManager::setParamFloat(const std::string &name, float value) {
   if (!ensure_client_ready())
     return false;
@@ -132,6 +363,10 @@ bool PX4_ParamManager::setParamFloat(const std::string &name, float value) {
   return srv.response.success;
 }
 
+/**
+ * @brief 发送 NSH 命令。
+ * @param cmd_in 命令文本
+ */
 void PX4_ParamManager::send_nsh(const std::string &cmd_in) {
   // 统一保证 NSH 命令以 '\n' 结尾，符合 shell 执行习惯。
   std::string cmd = cmd_in;
@@ -177,6 +412,12 @@ void PX4_ParamManager::send_nsh(const std::string &cmd_in) {
   mavlink_to_pub_.publish(ros_msg);
 }
 
+/**
+ * @brief 执行 NSH 命令并等待 shell prompt。
+ * @param cmd 命令文本
+ * @param timeout_sec 超时秒数
+ * @return 输出文本
+ */
 std::string PX4_ParamManager::run_nsh_cmd(const std::string &cmd,
                                           double timeout_sec) {
   // 清空旧缓存，避免上条命令残留影响本次 prompt 判定。
@@ -211,6 +452,11 @@ std::string PX4_ParamManager::run_nsh_cmd(const std::string &cmd,
   throw std::runtime_error("timeout waiting shell prompt");
 }
 
+/**
+ * @brief 清洗文本控制字符。
+ * @param text 原始文本
+ * @return 清洗后文本
+ */
 std::string PX4_ParamManager::sanitize_text(const std::string &text) const {
   // 去 ANSI 颜色/光标控制序列，减少日志污染。
   std::string out = std::regex_replace(text, ansi_re_, "");
@@ -221,6 +467,10 @@ std::string PX4_ParamManager::sanitize_text(const std::string &text) const {
   return out;
 }
 
+/**
+ * @brief MAVLink 接收回调。
+ * @param ros_msg MAVLink 消息
+ */
 void PX4_ParamManager::rx_cb(const mavros_msgs::Mavlink::ConstPtr &ros_msg) {
   // ROS msg -> mavlink_message_t
   mavlink::mavlink_message_t mmsg{};
@@ -256,6 +506,10 @@ void PX4_ParamManager::rx_cb(const mavros_msgs::Mavlink::ConstPtr &ros_msg) {
   cv_.notify_all();
 }
 
+/**
+ * @brief 估计器回调，仅更新计数。
+ * @param 估计器消息（未使用）
+ */
 void PX4_ParamManager::estimator_cb(
     const mavros_msgs::EstimatorStatus::ConstPtr &) {
   // 仅做计数，不解析内容。用于判断“start 后是否有新数据”。
@@ -264,11 +518,21 @@ void PX4_ParamManager::estimator_cb(
   cv_.notify_all();
 }
 
+/**
+ * @brief 获取估计器更新计数。
+ * @return 当前计数
+ */
 int PX4_ParamManager::estimator_count() const {
   std::lock_guard<std::mutex> lk(mtx_);
   return estimator_updates_;
 }
 
+/**
+ * @brief 等待估计器计数更新。
+ * @param prev_count 基准计数
+ * @param timeout_sec 超时秒数
+ * @return true 收到更新，false 超时
+ */
 bool PX4_ParamManager::wait_estimator_update(int prev_count,
                                              double timeout_sec) {
   // 等待计数从 prev_count 向上增长。
@@ -290,6 +554,11 @@ bool PX4_ParamManager::wait_estimator_update(int prev_count,
 
 namespace {
 
+/**
+ * @brief 解析 `ekf2 status` 文本并判断运行状态。
+ * @param status_output 命令输出文本
+ * @return true 运行中，false 未运行
+ */
 bool ekf2_running(const std::string &status_output) {
   // 文本规则判定：这不是 PX4 官方 API，而是面向当前 NSH 输出格式的启发式实现。
   std::string s = status_output;
@@ -312,6 +581,10 @@ bool ekf2_running(const std::string &status_output) {
 
 } // namespace
 
+/**
+ * @brief 重启 EKF2 并验证运行恢复。
+ * @return true 成功，false 失败
+ */
 bool PX4_ParamManager::boot_ekf2(void) {
   if (!ensure_client_ready()) {
     return false;
