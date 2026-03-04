@@ -1,7 +1,25 @@
 #include "sunray_statemachine/sunray_statemachine.h"
 
 Sunray_StateMachine::Sunray_StateMachine(ros::NodeHandle& nh)
-    : nh_(nh), current_state_(SunrayState::OFF), state_available_(false), takeoff_callback_ready_(false) {}
+    : nh_(nh), current_state_(SunrayState::OFF), state_available_(false), takeoff_callback_ready_(false) {
+    nh_.param("fsm/enable_offboard_control", enable_offboard_control_, enable_offboard_control_);
+    nh_.param("fsm/set_mode_retry_interval_s", set_mode_retry_interval_s_, set_mode_retry_interval_s_);
+    nh_.param("fsm/arm_retry_interval_s", arm_retry_interval_s_, arm_retry_interval_s_);
+
+    uav_ns_ = resolve_uav_namespace();
+    const std::string ns_prefix = uav_ns_.empty() ? std::string("") : ("/" + uav_ns_);
+    const std::string mavros_prefix = ns_prefix + "/mavros";
+    mavros_state_sub_ = nh_.subscribe<mavros_msgs::State>(
+        mavros_prefix + "/state", 10, &Sunray_StateMachine::mavros_state_callback, this);
+    arming_client_ = nh_.serviceClient<mavros_msgs::CommandBool>(mavros_prefix + "/cmd/arming");
+    set_mode_client_ = nh_.serviceClient<mavros_msgs::SetMode>(mavros_prefix + "/set_mode");
+
+    ROS_INFO("[SunrayFSM] mavros ns='%s' offboard_control=%s", mavros_prefix.c_str(),
+             enable_offboard_control_ ? "true" : "false");
+    if (!arbiter_.init(nh_)) {
+        ROS_WARN("[SunrayFSM] control arbiter init failed");
+    }
+}
 
 bool Sunray_StateMachine::register_controller(const std::shared_ptr<uav_controller::Base_Controller>& controller) {
     if (!controller) {
@@ -119,20 +137,136 @@ void Sunray_StateMachine::update() {
         return;
     }
 
+    if (requires_offboard() && !ensure_offboard_and_arm()) {
+        ROS_WARN_THROTTLE(1.0, "[SunrayFSM] waiting for OFFBOARD/ARM before effective flight control");
+    }
+
     switch (current_state_) {
         case SunrayState::TAKEOFF:
-            controller->set_takeoff_mode();
+            (void)controller->set_takeoff_mode();
             break;
         case SunrayState::LAND:
-            controller->set_land_mode();
+            (void)controller->set_land_mode();
             break;
         case SunrayState::EMERGENCY_LAND:
-            controller->set_emergency_mode();
+            (void)controller->set_emergency_mode();
             break;
         default:
-            (void)controller->update();
             break;
     }
+
+    const uav_controller::ControlOutput control_output = controller->update();
+
+    arbiter_.set_fsm_state(current_state_);
+    arbiter_.set_uav_state(controller->get_current_state());
+    if (current_state_ == SunrayState::EMERGENCY_LAND) {
+        arbiter_.submit(uav_control::Sunray_Control_Arbiter::ControlSource::EMERGENCY, control_output,
+                        ros::Time::now(), 255U);
+    } else {
+        arbiter_.submit(uav_control::Sunray_Control_Arbiter::ControlSource::EXTERNAL, control_output,
+                        ros::Time::now(), 100U);
+    }
+    (void)arbiter_.arbitrate_and_publish();
+}
+
+std::string Sunray_StateMachine::resolve_uav_namespace() const {
+    std::string key;
+    std::string ns;
+    if (nh_.searchParam("uav_ns", key) && nh_.getParam(key, ns) && !ns.empty()) {
+        if (!ns.empty() && ns.front() == '/') {
+            return ns.substr(1);
+        }
+        return ns;
+    }
+
+    std::string name;
+    int id = 0;
+    bool ok_name = false;
+    bool ok_id = false;
+    if (nh_.searchParam("uav_name", key)) {
+        ok_name = nh_.getParam(key, name) && !name.empty();
+    }
+    if (nh_.searchParam("uav_id", key)) {
+        ok_id = nh_.getParam(key, id);
+    }
+    if (ok_name && ok_id) {
+        return name + std::to_string(id);
+    }
+    return "";
+}
+
+void Sunray_StateMachine::mavros_state_callback(const mavros_msgs::StateConstPtr& msg) {
+    if (!msg) {
+        return;
+    }
+    mavros_state_ = *msg;
+    mavros_state_received_ = true;
+}
+
+bool Sunray_StateMachine::requires_offboard() const {
+    switch (current_state_) {
+        case SunrayState::TAKEOFF:
+        case SunrayState::HOVER:
+        case SunrayState::LAND:
+        case SunrayState::EMERGENCY_LAND:
+        case SunrayState::VELOCITY_CONTROL:
+        case SunrayState::POSE_CONTROL:
+        case SunrayState::REFERENCE_CONTROL:
+        case SunrayState::TRAJECTORY_CONTROL:
+        case SunrayState::BREAKING:
+            return true;
+        case SunrayState::OFF:
+        default:
+            return false;
+    }
+}
+
+bool Sunray_StateMachine::ensure_offboard_and_arm() {
+    if (!enable_offboard_control_) {
+        return true;
+    }
+    if (!mavros_state_received_) {
+        ROS_WARN_THROTTLE(1.0, "[SunrayFSM] waiting mavros state...");
+        return false;
+    }
+    if (!mavros_state_.connected) {
+        ROS_WARN_THROTTLE(1.0, "[SunrayFSM] mavros not connected");
+        return false;
+    }
+
+    const ros::Time now = ros::Time::now();
+
+    if (mavros_state_.mode != "OFFBOARD") {
+        if (last_set_mode_req_time_.isZero() ||
+            (now - last_set_mode_req_time_).toSec() >= set_mode_retry_interval_s_) {
+            mavros_msgs::SetMode mode_cmd;
+            mode_cmd.request.custom_mode = "OFFBOARD";
+            if (set_mode_client_.call(mode_cmd) && mode_cmd.response.mode_sent) {
+                ROS_INFO("[SunrayFSM] OFFBOARD mode request sent");
+            } else {
+                ROS_WARN_THROTTLE(1.0, "[SunrayFSM] OFFBOARD mode request failed");
+            }
+            last_set_mode_req_time_ = now;
+        }
+        return false;
+    }
+
+    if (!mavros_state_.armed) {
+        if (last_arm_req_time_.isZero() ||
+            (now - last_arm_req_time_).toSec() >= arm_retry_interval_s_) {
+            mavros_msgs::CommandBool arm_cmd;
+            arm_cmd.request.value = true;
+            if (arming_client_.call(arm_cmd) && arm_cmd.response.success) {
+                ROS_INFO("[SunrayFSM] ARM request sent");
+            } else {
+                ROS_WARN_THROTTLE(1.0, "[SunrayFSM] ARM request failed");
+            }
+            last_arm_req_time_ = now;
+        }
+        return false;
+    }
+
+    return true;
 }
 
 void Sunray_StateMachine::set_state_available(bool ready) {

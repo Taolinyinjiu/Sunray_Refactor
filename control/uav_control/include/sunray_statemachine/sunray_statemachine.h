@@ -3,9 +3,13 @@
 #include <memory>
 #include <string>
 
+#include <mavros_msgs/CommandBool.h>
+#include <mavros_msgs/SetMode.h>
+#include <mavros_msgs/State.h>
 #include <ros/ros.h>
 
 #include "base_controller/base_controller.h"
+#include "sunray_control_arbiter/sunray_control_arbiter.h"
 
 /**
  * @brief PX4 参数管理器前向声明。
@@ -163,6 +167,28 @@ public:
 
 private:
   /**
+   * @brief 解析 UAV 命名空间（uav_ns 或 uav_name+uav_id）。
+   * @return 例如 "uav1"，失败返回空字符串。
+   */
+  std::string resolve_uav_namespace() const;
+
+  /**
+   * @brief MAVROS 状态回调。
+   */
+  void mavros_state_callback(const mavros_msgs::StateConstPtr &msg);
+
+  /**
+   * @brief 在飞行相关状态确保 OFFBOARD + ARM。
+   * @return true 当前已满足；false 尚未满足。
+   */
+  bool ensure_offboard_and_arm();
+
+  /**
+   * @brief 当前状态是否需要飞控处于 OFFBOARD/ARM。
+   */
+  bool requires_offboard() const;
+
+  /**
    * @brief 起飞/解锁前 安全检查
    * @return true 可解锁/起飞；false 禁止解锁/起飞。
    */
@@ -209,4 +235,18 @@ private:
       px4_param_manager_; ///< PX4 参数管理器句柄。
   std::shared_ptr<uav_controller::Base_Controller>
       controller_; ///< 全局唯一控制器实例。
+  uav_control::Sunray_Control_Arbiter arbiter_; ///< 控制输出仲裁与发布层。
+
+  // MAVROS offboard/arming 接管相关
+  std::string uav_ns_;                     ///< 解析出的 UAV 命名空间（如 uav1）
+  ros::Subscriber mavros_state_sub_;       ///< /<uav_ns>/mavros/state
+  ros::ServiceClient arming_client_;       ///< /<uav_ns>/mavros/cmd/arming
+  ros::ServiceClient set_mode_client_;     ///< /<uav_ns>/mavros/set_mode
+  mavros_msgs::State mavros_state_;        ///< 最近一次飞控状态
+  bool mavros_state_received_{false};      ///< MAVROS 状态是否已收到
+  ros::Time last_set_mode_req_time_{};     ///< 最近一次 set_mode 请求时间
+  ros::Time last_arm_req_time_{};          ///< 最近一次 arming 请求时间
+  double set_mode_retry_interval_s_{1.0};  ///< set_mode 重试间隔（秒）
+  double arm_retry_interval_s_{1.0};       ///< arming 重试间隔（秒）
+  bool enable_offboard_control_{true};     ///< 是否启用 OFFBOARD/ARM 接管
 };

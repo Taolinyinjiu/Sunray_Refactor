@@ -1,9 +1,12 @@
 <launch>
-  <arg name="param_file" default="$(find uav_control)/../../config/sim/sunray-150/sunray-150-basic.yaml" />
-  <arg name="uav_name" default="__AUTO__" />
-  <arg name="uav_id" default="__AUTO__" />
+  <arg name="param_file" default="$(find uav_control)/../../config/sunray-150.yaml" />
+  <arg name="uav_name" default="uav" />
+  <arg name="uav_id" default="1" />
   <arg name="output_yaml" default="/tmp/sunray_uav_param_resolved.yaml" />
   <arg name="keep_output_yaml" default="true" />
+
+  <rosparam command="load" file="$(find uav_control)/config/px4_controller_config.yaml" />
+  <rosparam command="load" file="$(find uav_control)/config/sunray_control_arbiter_config.yaml" />
 
   <node pkg="uav_control"
         type="load_uav_param.py"

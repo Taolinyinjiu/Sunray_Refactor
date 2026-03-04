@@ -1,0 +1,46 @@
+<launch>
+  <arg name="param_file" default="$(find uav_control)/../../config/sunray-150.yaml" />
+  <arg name="uav_name" default="uav" />
+  <arg name="uav_id" default="1" />
+  <arg name="output_yaml" default="/tmp/sunray_uav_param_resolved.yaml" />
+  <arg name="keep_output_yaml" default="true" />
+
+  <!-- 参数兜底：即使 load_uav_param 失败，节点也能解析到 uav_ns -->
+  <param name="/uav_name" value="$(arg uav_name)" />
+  <param name="/uav_id" value="$(arg uav_id)" />
+  <param name="/uav_ns" value="$(arg uav_name)$(arg uav_id)" />
+
+  <!-- 1) 加载 uav_name/uav_id/uav_ns 以及命名空间参数 -->
+  <include file="$(find uav_control)/launch/load_param.launch">
+    <arg name="param_file" value="$(arg param_file)" />
+    <arg name="uav_name" value="$(arg uav_name)" />
+    <arg name="uav_id" value="$(arg uav_id)" />
+    <arg name="output_yaml" value="$(arg output_yaml)" />
+    <arg name="keep_output_yaml" value="$(arg keep_output_yaml)" />
+  </include>
+
+  <!-- 2) Gazebo model_states -> Sunray odom 输入 -->
+  <node pkg="uav_control"
+        type="gazebo_model_states_to_odom.py"
+        name="gazebo_model_states_to_odom"
+        output="screen">
+    <param name="use_model_states" value="false" />
+    <param name="input_topic" value="/$(arg uav_name)$(arg uav_id)/sunray/gazebo_pose" />
+    <param name="frame_id" value="world" />
+    <param name="child_frame_id" value="body" />
+  </node>
+
+  <!-- 3) 控制 demo 节点（FSM + 控制器 + 仲裁发布） -->
+  <node pkg="uav_control"
+        type="uav_control_demo_node"
+        name="uav_control_demo_node"
+        output="screen">
+    <param name="update_hz" value="50.0" />
+    <param name="auto_takeoff" value="false" />
+    <param name="auto_takeoff_delay_s" value="3.0" />
+    <param name="test_sequence_enable" value="true" />
+    <param name="test_sequence_repeat" value="false" />
+    <param name="test_sequence_script" value="TAKEOFF_REQUEST@3.0,LAND_REQUEST@20.0" />
+    <param name="auto_seed_desired_from_odom" value="true" />
+  </node>
+</launch>

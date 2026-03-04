@@ -1,0 +1,22 @@
+# PX4_Position_Controller 参数配置
+# 说明：所有键名需与 px4_position_controller.cpp 中 nh.param(...) 完全一致。
+
+# 起飞目标相对高度（m）
+takeoff_height_m: 1.5
+
+# 起飞爬升速度（m/s）
+takeoff_climb_mps: 0.6
+
+# 常规降落下降速度（m/s）
+landing_descent_mps: 0.5
+
+# 紧急下降速度（m/s），建议大于 landing_descent_mps
+emergency_descent_mps: 1.2
+
+# 到位判据阈值（m）
+position_error_tolerance_x_m: 0.15
+position_error_tolerance_y_m: 0.15
+position_error_tolerance_z_m: 0.15
+
+# 状态超时阈值（s），超过后控制器认为输入状态过期
+state_timeout_s: 0.2

@@ -159,6 +159,9 @@ class Base_Controller {
     virtual void set_currentstate(const nav_msgs::Odometry& current_state_msg);
     virtual void set_emergencystate(const nav_msgs::Odometry& emergency_state_msg);
     virtual void set_desiredstate(const nav_msgs::Odometry& desired_state_msg);
+    const uav_common::UAVStateEstimate& get_current_state() const { return current_state; }
+    const uav_common::UAVStateEstimate& get_emergency_state() const { return emergency_state; }
+    const uav_common::UAVStateEstimate& get_desired_state() const { return desired_state; }
 
   protected:             // 修改为 protected，方便子类状态检查
     bool has_loadparam;  ///< 初始化状态位，执行 takeoff 前需检查

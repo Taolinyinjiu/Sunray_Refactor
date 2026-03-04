@@ -4,6 +4,7 @@
 
 # Core ROS/Catkin workspace files
 .catkin_workspace
+.catkin_tools/
 build/
 devel/
 logs/
@@ -110,6 +111,12 @@ testing/
 temp/
 tmp/
 *.tmp
+
+# Local/package-level build trees (e.g. per-package standalone cmake builds)
+**/build_local/
+**/build/
+**/devel/
+**/.catkin_tools/
 
 # Configuration and state files
 .sunray_last_build_selection

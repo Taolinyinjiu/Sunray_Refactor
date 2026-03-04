@@ -6,7 +6,34 @@ uav_control是Sunray项目的控制核心部分，主要包含以Base_Controller
 - 基于强化学习设计的RAPTOR控制器，位置控制的精度由模型决定
 
 这四种控制器，对应了四个文件夹
-- px4_positioncontroller 基于px4位置环的控制器
-- px4_velocitycontroller 基于px4速度环的控制器
+- px4_position_controller 基于px4位置环的控制器
+- px4_velocity_controller 基于px4速度环的控制器
 - sunray_attitude_controller 基于px4姿态环的控制器
 - sunray_raptor_controller 基于强化学习RAPTOR模型的控制器
+
+除此之外，还存在一个核心的状态机模块，也就是Sunray_statemachine，通常我们简称为Sunray_fsm（fsm指的是有限状态机）
+
+总的来说sunray_fsm是一个相对封闭的模块，向外暴露出特定的接口，允许用户通过这些接口组合实现自己的算法
+sunray_fsm所提供的接口可以分为这几类
+
+1. 与无人机运动控制相关
+ - 起飞(先service服务 后topic话题)
+    takeoff_request
+    takeoff_command
+ - 降落
+    land_request
+    land_command
+ - 紧急降落
+    emergency_land_request
+    emergency_land_command
+ - 运动控制
+    control_request
+    control_command
+
+2. 与无人机状态相关的
+ - 状态机状态变量（10hz）
+    sunray_fsm_state
+ - 无人机运动相关变量
+    uav_odom_state
+ - 传感器相关状态
+    uav_sensor_status
