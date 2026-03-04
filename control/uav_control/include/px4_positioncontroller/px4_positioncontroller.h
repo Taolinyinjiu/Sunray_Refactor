@@ -21,9 +21,10 @@ public:
    * @brief 控制器飞行阶段。
    */
   enum class FlightStage {
-    TAKEOFF = 0, ///< 起飞阶段
-    AIR,         ///< 空中巡航/任务阶段
-    LANDING,     ///< 降落阶段
+    GROUND = 0, ///< 在地面阶段
+    TAKEOFF,    ///< 起飞阶段
+    AIR,        ///< 空中巡航/任务阶段
+    LANDING,    ///< 降落阶段
   };
 
   /** @brief 加载控制参数。 */
@@ -61,7 +62,9 @@ public:
   FlightStage flight_stage() const { return flight_stage_; }
 
 private:
-  FlightStage flight_stage_{FlightStage::TAKEOFF};
+  FlightStage flight_stage_{
+      FlightStage::
+          GROUND}; // 默认状态为在地面，当接收到状态机指令后切换到起飞，起飞结束后切换到AIR，接受到降落或者紧急降落命令后，切换到Landing，降落完成后切换到GROUND
 
   // Takeoff parameters
   float takeoff_height_m{0.0F};

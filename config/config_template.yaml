@@ -1,0 +1,108 @@
+# sunray-150-basic配置文件（Templates）
+# 描述
+# 整个参数描述文件分为这样几个部分
+
+# 1. 无人机自身标识 
+# uav_name 无人机自身名称，通常为uav
+# uav_id 无人机自身序号，通常单个无人机设置为1
+# uav_type: 无人机型号，根据型号不同搭载传感器不同，从而在算法考量上不同
+# 无人机型号 0: simualtion 1:basic  2:lidar 3:stereo 4:swarm
+
+# 2. 坐标系定义
+# 无人机自身坐标系(用于构造tf)
+# uav_body: base_link
+# uav_world: map或者world
+
+# 3. Sunray接口
+# -----------------输入部分-------------------
+
+# 里程计接口，会默认添加uav_name + uav_id 作为前缀，即实际订阅为 uav_name+uav_id/sunray_odom_in 话题
+# sunray_odom_in: sunray/uav_odometry 该接口为外部里程计数据向Sunray控制部分输入，使用标准的ROS nav_msgs::odometry类型
+
+# 辅助里程计接口，该里程计在里程计失效的紧急状态下辅助进行降落
+# sunray_uav_odom: sunray/aux_uav_odometry
+
+# 控制api向外暴露接口,会默认添加uav_name + uav_id 作为前缀,即如果需要向sunray状态机调用控制，
+# 需要发布的话题实际上是uav_name+uav_id/sunray_control_interface,类型为自定义的ros消息，存在仲裁优先级，防止多控制源冲突
+# sunray_control_interface: sunray/control_interface 
+
+# 起飞请求接口(服务的方式)
+# sunray_takeoff_request: sunray/takeoff_request
+# 起飞请求接口(话题的方式)
+# sunray_takeoff_interface: sunray/takeoff_interface
+# 降落请求接口
+# sunray_land_request: sunray/land_request
+# 降落请求接口(话题的方式)
+# sunray_land_interface: sunray/land_interface
+# 紧急降落接口
+# sunray_emergency_land_request: sunray/emergency_land_request
+# 紧急降落接口(话题的方式)
+# sunray_emergency_land_interface: sunray/emergency_land_interface
+
+
+# -----------------输出部分-------------------
+
+# 状态机当前状态(实时10Hz向外发布，非查询),会默认添加uav_name + uav_id 作为前缀，自定义ros话题
+# sunray_fsm_state: sunray_fsm_state
+
+# 状态机错误码,自定义ros话题，配备解码库
+# sunray_fsm_errorcode: sunray_fsm_errorcode
+
+# -----------------遥控器参数部分-------------------
+
+# 如果您使用的不是radiomaster pocket遥控器，请根据实际情况进行修改
+# 如果您购买的是Sunray系列产品，并使用配套遥控器，请不要修改这里
+# rc_controller_recerse:
+#   roll:false
+#   pitch:false
+#   yaw:false
+#   throttle:false
+
+
+
+#  -----------------控制参数部分-------------------
+
+# 是否允许Sunray自动解锁(在遥控器不进行主动解锁操作时Sunray正常执行任务)
+# enable_auto_arm:true
+
+# 是否允许在无rc连接的情况下执行任务
+# enable_no_rc:false
+
+# 起飞降落参数部分
+# 起飞高度
+# sunray_takeoff_height_m: 1.0
+# 起飞降落速度
+# sunray_takeoff_land_speed_mps: 0.2
+
+#  -----------------PX4原生控制器参数部分-------------------
+# 注：在Sunray出货时，参数整定后，在这里提供一份备份，允许通过该备份覆盖飞控pid参数，主要用于用户调整pid参数发现效果不好，又调不到出厂效果时进行一次重置
+# 注：当飞行器质量变动，增加负载，或者损坏后，以及出现炸鸡情况，下面参数不保证能够达到出厂性能，pid参数与硬件情况相关联
+
+# 是否根据配置文件中的参数覆盖px4飞控中的参数
+# enable_override_param:false
+
+# 角速度环参数
+# 参数顺序为 roll_pid：[kp.ki,kd]
+# sunray_px4_rate_pid:
+#   roll_pid: [1.0,1.0,1.0]
+#   pitch_pid: [1.0,1.0,1.0]
+#   yaw_pid: [1.0,1.0,1.0]
+# px4原生的速度环控制器
+# sunray_px4_velocity_pid:
+#   xy_pid: [1.0,1.0,1.0]
+#   z_pid: [1.0,1.0,1.0]
+# px4原生的位置环控制器(单P 比例调节)
+# sunray_px4_position_p:
+#   xy_p: 1.0
+#   z_p: 1.0
+
+# -----------------Sunray 控制器参数部分-------------------
+
+# 待定
+
+
+
+
+
+
+
