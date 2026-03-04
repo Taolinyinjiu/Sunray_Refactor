@@ -1,0 +1,12 @@
+uav_control是Sunray项目的控制核心部分，主要包含以Base_Controller为基类，延伸出来的几类控制器，分别是
+
+- 基于PX4位置环设计的控制器，位置控制的精度由PX4位置环精度决定，PX4内部的位置环为单P环节，也就是说纯比例环节，因此性能没有其他几个控制器好
+- 基于PX4速度环设计的PID控制器，位置控制的精度由PID参数决定，相较于基于PX4位置环设计的控制器，其为完整的PID控制，因此性能会相对较好
+- 基于PX4姿态环设计的Sunray自定义控制器，位置控制的精度由控制器的参数决定
+- 基于强化学习设计的RAPTOR控制器，位置控制的精度由模型决定
+
+这四种控制器，对应了四个文件夹
+- px4_positioncontroller 基于px4位置环的控制器
+- px4_velocitycontroller 基于px4速度环的控制器
+- sunray_attitude_controller 基于px4姿态环的控制器
+- sunray_raptor_controller 基于强化学习RAPTOR模型的控制器
