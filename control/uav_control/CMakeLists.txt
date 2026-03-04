@@ -141,10 +141,10 @@ target_link_libraries(px4_manager_lib INTERFACE
 	${EIGEN3_LIBRARIES}
 )
 
-add_library(flight_command_arbiter_lib
-  src/flight_command_arbiter/flight_command_arbiter.cpp
+add_library(sunray_fsm_lib
+  src/sunray_statemachine/sunray_statemachine.cpp
 )
-target_link_libraries(flight_command_arbiter_lib
+target_link_libraries(sunray_fsm_lib
   ${catkin_LIBRARIES}
   ${EIGEN3_LIBRARIES}
 )
@@ -159,73 +159,6 @@ target_link_libraries(flight_command_arbiter_lib
 ## as an example, code may need to be generated before libraries
 ## either from message generation or dynamic reconfigure
 # add_dependencies(${PROJECT_NAME} ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-
-## Declare a C++ executable
-add_executable(px4_data_reader_test_node
-  src/px4_manager/px4_data_reader_test_node.cpp
-  src/px4_manager/px4_data_reader.cpp
-  src/px4_manager/px4_data_reader_callback.cpp
-  src/px4_manager/mavros_eigen_conversions.cpp
-)
-
-## Add cmake target dependencies of the executable
-add_dependencies(px4_data_reader_test_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-
-## Specify libraries to link the executable against
-target_link_libraries(px4_data_reader_test_node
-  ${catkin_LIBRARIES}
-  ${EIGEN3_LIBRARIES}
-)
-
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/px4_manager/px4_manager_test_node.cpp")
-  add_executable(px4_manager_test_node
-    src/px4_manager/px4_manager_test_node.cpp
-    src/px4_manager/px4_manager.cpp
-  )
-
-  add_dependencies(px4_manager_test_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-
-  target_link_libraries(px4_manager_test_node
-    ${catkin_LIBRARIES}
-    ${EIGEN3_LIBRARIES}
-  )
-endif()
-
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/px4_manager/px4_param_manager_test_node.cpp")
-  add_executable(px4_param_manager_test_node
-    src/px4_manager/px4_param_manager_test_node.cpp
-    src/px4_manager/px4_param_manager.cpp
-  )
-
-  add_dependencies(px4_param_manager_test_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-
-  target_link_libraries(px4_param_manager_test_node
-    ${catkin_LIBRARIES}
-    ${EIGEN3_LIBRARIES}
-  )
-endif()
-
-add_executable(nsh_mavlink_test_node
-  src/px4_manager/nsh_mavlink_test_node.cpp
-)
-
-add_dependencies(nsh_mavlink_test_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-
-target_link_libraries(nsh_mavlink_test_node
-  ${catkin_LIBRARIES}
-  ${EIGEN3_LIBRARIES}
-)
-
-add_executable(nsh_proxy_terminal_node
-  src/px4_manager/nsh_proxy_terminal_node.cpp
-)
-
-add_dependencies(nsh_proxy_terminal_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-
-target_link_libraries(nsh_proxy_terminal_node
-  ${catkin_LIBRARIES}
-  ${EIGEN3_LIBRARIES}
-)
 
 ## Add cmake target dependencies of the executable
 ## same as for the library above
@@ -293,17 +226,6 @@ if(CATKIN_ENABLE_TESTING)
     )
   endif()
 
-  catkin_add_gtest(uav_control_px4_data_reader_ut
-    test/unit/test_px4_data_reader.cpp
-    src/px4_manager/px4_data_reader.cpp
-    src/px4_manager/px4_data_reader_callback.cpp
-  )
-  if(TARGET uav_control_px4_data_reader_ut)
-    target_link_libraries(uav_control_px4_data_reader_ut
-      ${catkin_LIBRARIES}
-      ${EIGEN3_LIBRARIES}
-    )
-  endif()
 endif()
 
 ## Add folders to be run by python nosetests

@@ -137,6 +137,16 @@ target_link_libraries(px4_bridge
   ${EIGEN3_LIBRARIES}
 )
 
+add_executable(px4_bridge_test_node
+  src/px4_bridge_test_node.cpp
+)
+
+target_link_libraries(px4_bridge_test_node
+  px4_bridge
+  ${catkin_LIBRARIES}
+  ${EIGEN3_LIBRARIES}
+)
+
 #############
 ## Testing ##
 #############
