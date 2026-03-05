@@ -10,6 +10,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(Eigen3 REQUIRED)
+find_package(PythonInterp REQUIRED)
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 find_package(catkin REQUIRED COMPONENTS
@@ -212,7 +213,20 @@ target_link_libraries(uav_control_demo_node
 catkin_install_python(PROGRAMS
   scripts/load_uav_param.py
   scripts/gazebo_model_states_to_odom.py
+  scripts/gen_fsm_diagram.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+
+add_custom_target(gen_uav_fsm_diagram
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_fsm_diagram.py --write
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  COMMENT "Generate uav_control FSM Mermaid diagram from source code"
+)
+
+add_custom_target(check_uav_fsm_diagram
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/gen_fsm_diagram.py --check
+  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+  COMMENT "Check whether uav_control FSM Mermaid diagram is up to date"
 )
 
 ## Mark executables for installation

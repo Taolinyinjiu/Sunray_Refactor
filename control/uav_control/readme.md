@@ -37,3 +37,21 @@ sunray_fsm所提供的接口可以分为这几类
     uav_odom_state
  - 传感器相关状态
     uav_sensor_status
+
+## 状态机图自动生成
+
+`uav_control` 提供了基于源码自动生成状态机图的脚本：
+
+```bash
+python3 control/uav_control/scripts/gen_fsm_diagram.py --write
+```
+
+生成文件：
+
+- `control/uav_control/state_machine_diagram.md`
+
+一致性检查（适合 CI）：
+
+```bash
+python3 control/uav_control/scripts/gen_fsm_diagram.py --check --strict
+```

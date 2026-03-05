@@ -1,10 +1,10 @@
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
-#include <sstream>
-#include <algorithm>
-#include <cstdlib>
-#include <cctype>
 
 #include <nav_msgs/Odometry.h>
 #include <ros/ros.h>
@@ -24,7 +24,8 @@ std::string trim_leading_slash(const std::string &s) {
 std::string resolve_uav_ns(ros::NodeHandle &nh) {
   std::string key;
   std::string uav_ns;
-  if (nh.searchParam("uav_ns", key) && nh.getParam(key, uav_ns) && !uav_ns.empty()) {
+  if (nh.searchParam("uav_ns", key) && nh.getParam(key, uav_ns) &&
+      !uav_ns.empty()) {
     return trim_leading_slash(uav_ns);
   }
 
@@ -63,7 +64,9 @@ public:
   };
 
   explicit UavControlDemoNode(ros::NodeHandle &nh)
-      : nh_(nh), pnh_("~"), fsm_(nh), controller_(std::make_shared<uav_controller::PX4_Position_Controller>()) {
+      : nh_(nh), pnh_("~"), fsm_(nh),
+        controller_(
+            std::make_shared<uav_controller::PX4_Position_Controller>()) {
     uav_ns_ = resolve_uav_ns(nh_);
     ROS_INFO("[UavControlDemo] resolved uav_ns='%s'", uav_ns_.c_str());
 
@@ -75,13 +78,17 @@ public:
     pnh_.param("event_topic", event_topic, event_topic);
 
     if (!controller_->load_param(nh_, false)) {
-      ROS_WARN("[UavControlDemo] controller load_param failed, will continue for debug");
+      ROS_WARN("[UavControlDemo] controller load_param failed, will continue "
+               "for debug");
     }
     (void)fsm_.register_controller(controller_);
 
-    odom_sub_ = nh_.subscribe(odom_topic, 20, &UavControlDemoNode::odom_cb, this);
-    desired_sub_ = nh_.subscribe(desired_topic, 20, &UavControlDemoNode::desired_cb, this);
-    event_sub_ = nh_.subscribe(event_topic, 20, &UavControlDemoNode::event_cb, this);
+    odom_sub_ =
+        nh_.subscribe(odom_topic, 20, &UavControlDemoNode::odom_cb, this);
+    desired_sub_ =
+        nh_.subscribe(desired_topic, 20, &UavControlDemoNode::desired_cb, this);
+    event_sub_ =
+        nh_.subscribe(event_topic, 20, &UavControlDemoNode::event_cb, this);
 
     double update_hz = 50.0;
     pnh_.param("update_hz", update_hz, update_hz);
@@ -92,16 +99,19 @@ public:
     pnh_.param("auto_takeoff", auto_takeoff, auto_takeoff);
     if (auto_takeoff) {
       double auto_takeoff_delay_s = 3.0;
-      pnh_.param("auto_takeoff_delay_s", auto_takeoff_delay_s, auto_takeoff_delay_s);
-      auto_takeoff_timer_ = nh_.createTimer(ros::Duration(auto_takeoff_delay_s),
-                                            &UavControlDemoNode::auto_takeoff_cb, this, true);
+      pnh_.param("auto_takeoff_delay_s", auto_takeoff_delay_s,
+                 auto_takeoff_delay_s);
+      auto_takeoff_timer_ =
+          nh_.createTimer(ros::Duration(auto_takeoff_delay_s),
+                          &UavControlDemoNode::auto_takeoff_cb, this, true);
     }
 
     std::string test_script;
     pnh_.param("test_sequence_script", test_script, test_script);
     pnh_.param("test_sequence_repeat", test_sequence_repeat_, false);
     pnh_.param("test_sequence_enable", test_sequence_enable_, false);
-    pnh_.param("auto_seed_desired_from_odom", auto_seed_desired_from_odom_, true);
+    pnh_.param("auto_seed_desired_from_odom", auto_seed_desired_from_odom_,
+               true);
     if (test_sequence_enable_) {
       if (parse_test_script(test_script)) {
         test_start_time_ = ros::Time::now();
@@ -126,28 +136,27 @@ private:
     if (auto_seed_desired_from_odom_ && !desired_input_received_) {
       controller_->set_desiredstate(*msg);
       fsm_.set_takeoff_callback_ready(true);
-      ROS_INFO_THROTTLE(
-          1.0,
-          "[UavControlDemo][debug] desired auto-seeded from odom for takeoff gate");
+      ROS_INFO_THROTTLE(1.0, "[UavControlDemo][debug] desired auto-seeded from "
+                             "odom for takeoff gate");
     }
 
-    ROS_INFO_THROTTLE(
-        1.0,
-        "[UavControlDemo][debug] odom in: topic stamp=%.3f frame='%s' child='%s' pos_z=%.3f",
-        msg->header.stamp.toSec(), msg->header.frame_id.c_str(),
-        msg->child_frame_id.c_str(), msg->pose.pose.position.z);
+    ROS_INFO_THROTTLE(1.0,
+                      "[UavControlDemo][debug] odom in: topic stamp=%.3f "
+                      "frame='%s' child='%s' pos_z=%.3f",
+                      msg->header.stamp.toSec(), msg->header.frame_id.c_str(),
+                      msg->child_frame_id.c_str(), msg->pose.pose.position.z);
   }
 
   void desired_cb(const nav_msgs::OdometryConstPtr &msg) {
     desired_input_received_ = true;
     controller_->set_desiredstate(*msg);
     fsm_.set_takeoff_callback_ready(true);
-    ROS_INFO_THROTTLE(
-        1.0,
-        "[UavControlDemo][debug] desired in: stamp=%.3f frame='%s' child='%s' pos=[%.3f %.3f %.3f]",
-        msg->header.stamp.toSec(), msg->header.frame_id.c_str(),
-        msg->child_frame_id.c_str(), msg->pose.pose.position.x,
-        msg->pose.pose.position.y, msg->pose.pose.position.z);
+    ROS_INFO_THROTTLE(1.0,
+                      "[UavControlDemo][debug] desired in: stamp=%.3f "
+                      "frame='%s' child='%s' pos=[%.3f %.3f %.3f]",
+                      msg->header.stamp.toSec(), msg->header.frame_id.c_str(),
+                      msg->child_frame_id.c_str(), msg->pose.pose.position.x,
+                      msg->pose.pose.position.y, msg->pose.pose.position.z);
   }
 
   void event_cb(const std_msgs::StringConstPtr &msg) {
@@ -155,7 +164,8 @@ private:
     if (parse_event_name(msg->data, &event)) {
       dispatch_event(event, msg->data, "topic");
     } else {
-      ROS_WARN_THROTTLE(1.0, "[UavControlDemo] unsupported event: %s", msg->data.c_str());
+      ROS_WARN_THROTTLE(1.0, "[UavControlDemo] unsupported event: %s",
+                        msg->data.c_str());
     }
   }
 
@@ -163,7 +173,8 @@ private:
 
   void auto_takeoff_cb(const ros::TimerEvent &) {
     ROS_INFO("[UavControlDemo] auto takeoff trigger");
-    dispatch_event(SunrayEvent::TAKEOFF_REQUEST, "TAKEOFF_REQUEST", "auto_takeoff");
+    dispatch_event(SunrayEvent::TAKEOFF_REQUEST, "TAKEOFF_REQUEST",
+                   "auto_takeoff");
   }
 
   bool parse_event_name(const std::string &name, SunrayEvent *event) const {
@@ -216,13 +227,17 @@ private:
     std::stringstream ss(script);
     std::string token;
     while (std::getline(ss, token, ',')) {
-      token.erase(std::remove_if(token.begin(), token.end(), ::isspace), token.end());
+      token.erase(std::remove_if(token.begin(), token.end(), ::isspace),
+                  token.end());
       if (token.empty()) {
         continue;
       }
       const std::size_t at_pos = token.find('@');
-      if (at_pos == std::string::npos || at_pos == 0U || at_pos + 1U >= token.size()) {
-        ROS_WARN("[UavControlDemo] invalid test token: '%s' (expect EVENT@TIME)", token.c_str());
+      if (at_pos == std::string::npos || at_pos == 0U ||
+          at_pos + 1U >= token.size()) {
+        ROS_WARN(
+            "[UavControlDemo] invalid test token: '%s' (expect EVENT@TIME)",
+            token.c_str());
         return false;
       }
 
@@ -230,14 +245,16 @@ private:
       const std::string time_s = token.substr(at_pos + 1U);
       SunrayEvent evt;
       if (!parse_event_name(event_name, &evt)) {
-        ROS_WARN("[UavControlDemo] unknown event in test script: '%s'", event_name.c_str());
+        ROS_WARN("[UavControlDemo] unknown event in test script: '%s'",
+                 event_name.c_str());
         return false;
       }
 
       char *end_ptr = nullptr;
       const double trigger_time = std::strtod(time_s.c_str(), &end_ptr);
       if (end_ptr == time_s.c_str() || trigger_time < 0.0) {
-        ROS_WARN("[UavControlDemo] invalid trigger time in test script: '%s'", time_s.c_str());
+        ROS_WARN("[UavControlDemo] invalid trigger time in test script: '%s'",
+                 time_s.c_str());
         return false;
       }
 
@@ -280,7 +297,8 @@ private:
     }
   }
 
-  void dispatch_event(SunrayEvent event, const std::string &name, const std::string &source) {
+  void dispatch_event(SunrayEvent event, const std::string &name,
+                      const std::string &source) {
     const bool accepted = fsm_.dispatch(event);
     ROS_INFO("[UavControlDemo][event] source=%s event=%s accepted=%s",
              source.c_str(), name.c_str(), accepted ? "true" : "false");
@@ -313,5 +331,20 @@ int main(int argc, char **argv) {
   ros::NodeHandle nh;
   UavControlDemoNode node(nh);
   ros::spin();
-  return 0;
+
+  std::vector<Eigen::Vector3d> point_list;
+  Eigen::Vector3d Point_1(-1, -1, 1);
+  Eigen::Vector3d Point_2(1, -1, 1);
+  Eigen::Vector3d Point_3(1, 1, 1);
+  Eigen::Vector3d Point_4(-1, 1, 1);
+  Eigen::Vector3d Point_5(-1, -11, 1);
+  point_list.push_back(Point_1);
+  point_list.push_back(Point_2);
+  point_list.push_back(Point_3);
+  point_list.push_back(Point_4);
+  point_list.push_back(Point_5);
+	
+	
+	
+	return 0;
 }
