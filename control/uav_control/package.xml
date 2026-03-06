@@ -56,6 +56,7 @@
   <depend>sensor_msgs</depend>
   <depend>mavros_msgs</depend>
   <depend>gazebo_msgs</depend>
+  <depend>px4_bridge</depend>
   <test_depend>gtest</test_depend>
 	
   <!-- The export tag contains other, unspecified, tags -->

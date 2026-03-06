@@ -21,6 +21,7 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   mavros_msgs
   gazebo_msgs
+  px4_bridge
 )
 
 ## Uncomment this if the package has a setup.py. This macro ensures
@@ -111,7 +112,7 @@ find_package(catkin REQUIRED COMPONENTS
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES UAV_Controller
-#  CATKIN_DEPENDS other_catkin_pkg
+  CATKIN_DEPENDS roscpp std_msgs nav_msgs geometry_msgs sensor_msgs mavros_msgs gazebo_msgs px4_bridge
 #  DEPENDS system_lib
 )
 
