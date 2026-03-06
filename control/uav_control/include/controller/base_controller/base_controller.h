@@ -60,7 +60,17 @@ class Base_Controller {
     const UAVStateEstimate& get_emergency_state() const { return emergency_state_; }
 		// 简化控制器开发，开发者只需要关心如何对轨迹进行控制就好了
 		virtual bool set_trajectory(std::vector<TrajectoryPoint> tarjectory_);
-
+    // 当我们谈到传入轨迹的时候，我们实际上在讨论什么？
+    // 1. 对于ego_planner 在未达到目的点时，会一直发送PositonCommand
+    // 2。 对于手动输入的轨迹来说，只会输入一次轨迹，并等待无人机达到期望的点位
+    // 3. 然而，我们通常希望轨迹是可以被打断的，因此我们得到这样的一个基本的观点
+    //    我们可以传入完整的轨迹，也可以传入一部分轨迹，对于轨迹来说，我们要求他是抢占性的，也就是新轨迹的优先级是大于旧轨迹的
+    //    也就是说当我们传入一条新轨迹的时候，我们希望他能够立即生效，而不需要等到旧轨迹执行完毕
+    //    这就要求我们在控制器内部需要有一个轨迹缓冲区，来存储当前的轨迹和待生效的轨迹
+    //    这样我们就可以在控制器内部实现一个双缓冲的机制
+    //    也就是说我们有一个active轨迹和一个pending轨迹，active轨迹是当前正在执行的轨迹，pending轨迹是待生效的轨迹
+    //    当我们传入一条新轨迹的时候，我们将他放入pending轨迹中，当active轨迹执行完毕或者达到某个条件的时候，我们将pending轨迹切换到active轨迹中，这样就实现了轨迹的抢占性和实时性
+    //    这样我们就可以保证我们的控制器能够及时响应新的轨迹输入，同时也能够保证轨迹的连续性和稳定性
   protected:             // 修改为 protected，方便子类状态检查
     bool has_loadparam;  ///< 初始化状态位，执行 takeoff 前需检查
     bool is_emergency;   ///< 紧急状态标志，使能时强制进入 emergency_land
