@@ -7,7 +7,7 @@
 #include <geometry_msgs/Quaternion.h>
 #include <geometry_msgs/Vector3.h>
 
-namespace uav_common {
+namespace uav_control {
 /**
  * @brief `geometry_msgs` 与 Eigen 之间的常用几何类型转换接口集合。
  *

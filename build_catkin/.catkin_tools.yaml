@@ -1,0 +1,6 @@
+devel_space: /home/taolin/Documents/GitHub/Sunray_Refactor/devel_catkin
+install: false
+install_space: /home/taolin/Documents/GitHub/Sunray_Refactor/install
+profile: default
+source_space: /home/taolin/Documents/GitHub/Sunray_Refactor/control
+workspace: /home/taolin/Documents/GitHub/Sunray_Refactor

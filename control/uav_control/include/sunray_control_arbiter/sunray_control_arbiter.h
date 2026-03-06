@@ -15,8 +15,8 @@
 #include <mavros_msgs/PositionTarget.h>
 #include <ros/ros.h>
 
-#include "base_controller/base_controller.h"
-#include "utils/uav_state_estimate.hpp"
+#include "controller/base_controller/base_controller.h"
+#include "control_data_types/uav_state_estimate.hpp"
 
 enum class SunrayState;
 

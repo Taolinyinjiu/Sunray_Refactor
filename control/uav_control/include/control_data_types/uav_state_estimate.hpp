@@ -8,7 +8,7 @@
 #include <nav_msgs/Odometry.h>
 #include <ros/time.h>
 
-namespace uav_common {
+namespace uav_control {
 /**
  * @brief 无人机状态估计数据容器（Odometry <-> Eigen 的轻量桥接类型）。
  *
@@ -89,9 +89,9 @@ struct UAVStateEstimate {
     Eigen::Vector3d bodyrates;   ///< 机体系角速度（rad/s）。
     Eigen::Quaterniond orientation;  ///< 姿态四元数（建议单位四元数）。
 };
-}  // namespace uav_common
+}  // namespace uav_control
 
-namespace uav_common {
+namespace uav_control {
 namespace detail {
 inline std::string normalizeFrameId(const std::string& frame_id) {
     if (!frame_id.empty() && frame_id.front() == '/') {
@@ -105,15 +105,15 @@ inline std::string normalizeFrameId(const std::string& frame_id) {
  * @param frame_id 输入 frame 名称。
  * @return 解析后的坐标系枚举；不识别时返回 `INVALID`。
  */
-inline uav_common::UAVStateEstimate::CoordinateFrame parseCoordinateFrame(const std::string& frame_id) {
+inline uav_control::UAVStateEstimate::CoordinateFrame parseCoordinateFrame(const std::string& frame_id) {
     const std::string normalized = normalizeFrameId(frame_id);
     if (normalized == "world" || normalized == "map") {
-        return uav_common::UAVStateEstimate::CoordinateFrame::WORLD;
+        return uav_control::UAVStateEstimate::CoordinateFrame::WORLD;
     }
     if (normalized == "local" || normalized == "odom") {
-        return uav_common::UAVStateEstimate::CoordinateFrame::LOCAL;
+        return uav_control::UAVStateEstimate::CoordinateFrame::LOCAL;
     }
-    return uav_common::UAVStateEstimate::CoordinateFrame::INVALID;
+    return uav_control::UAVStateEstimate::CoordinateFrame::INVALID;
 }
 
 /**
@@ -206,4 +206,4 @@ inline bool UAVStateEstimate::isValid() const {
     return true;
 }
 
-}  // namespace uav_common
+}  // namespace uav_control

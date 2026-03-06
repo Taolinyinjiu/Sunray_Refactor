@@ -7,7 +7,7 @@
  * 本文件定义 `PX4_Position_Controller` 类，用于对接 PX4 内部位置控制能力。
  */
 
-#include "base_controller/base_controller.h"
+#include "controller/base_controller/base_controller.h"
 
 namespace uav_controller {
 

@@ -7,7 +7,7 @@
 #include <px4_bridge/px4_param_manager.h>
 #include <ros/node_handle.h>
 #include <ros/service_client.h>
-#include <utils/uav_state_estimate.hpp>
+#include <control_data_types/uav_state_estimate.hpp>
 
 // 前项定义
 
@@ -27,7 +27,7 @@ public:
   // 触发降落
   bool land_async();
   bool land_block();
-  // 触发返航
+	// 触发返航
   bool return_async();
   bool return_block();
   // 触发位置控制
@@ -73,7 +73,7 @@ public:
 
   // -------------------------查询接口--------------------------------
   // 无人机当前状态
-  uav_common::UAVStateEstimate get_uav_odometry();
+  uav_control::UAVStateEstimate get_uav_odometry();
   Eigen::Vector3d get_uav_position();
   Eigen::Vector3d get_uav_velocity_linear();
   Eigen::Vector3d get_uav_velocity_angular();

@@ -10,7 +10,7 @@
 #include <ros/ros.h>
 #include <std_msgs/String.h>
 
-#include "px4_position_controller/px4_position_controller.h"
+#include "controller/px4_position_controller/px4_position_controller.h"
 #include "sunray_statemachine/sunray_statemachine.h"
 
 namespace {

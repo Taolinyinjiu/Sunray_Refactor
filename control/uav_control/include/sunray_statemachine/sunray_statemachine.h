@@ -8,7 +8,7 @@
 #include <mavros_msgs/State.h>
 #include <ros/ros.h>
 
-#include "base_controller/base_controller.h"
+#include "controller/base_controller/base_controller.h"
 #include "sunray_control_arbiter/sunray_control_arbiter.h"
 
 /**
