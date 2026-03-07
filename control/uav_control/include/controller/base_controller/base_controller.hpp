@@ -1,168 +1,102 @@
 #pragma once
-#include <Eigen/Dense>
+
 #include <cstdint>
-#include <ros/node_handle.h>
+#include <string>
+#include <vector>
+
+#include "control_data_types/control_data_types.h"
 #include "control_data_types/uav_state_estimate.hpp"
+#include <Eigen/Dense>
+#include <nav_msgs/Odometry.h>
+#include <ros/ros.h>
+#include <sensor_msgs/Imu.h>
 
-// 控制输出掩码
-class ControlMask {
-public:
-  // 强制类型枚举
-  enum class Bit : uint32_t {
-    POSITION = 1u << 0,
-    VELOCITY = 1u << 1,
-    ATTITUDE = 1u << 2,
-    THRUST = 1u << 3,
-    ACCELERATION = 1u << 4,
-    TORQUE = 1u << 5,
-  };
-  // 默认构造函数
-  ControlMask() : mask_(0u) {}
-  // 使能不同的控制环节
-  ControlMask &position(bool enable) {
-    set(Bit::POSITION, enable);
-    return *this;
-  }
-  ControlMask &velocity(bool enable) {
-    set(Bit::VELOCITY, enable);
-    return *this;
-  }
-  ControlMask &attitude(bool enable) {
-    set(Bit::ATTITUDE, enable);
-    return *this;
-  }
-  ControlMask &thrust(bool enable) {
-    set(Bit::THRUST, enable);
-    return *this;
-  }
+namespace uav_control {
 
-  // 互斥：开加速度时关力矩
-  ControlMask &acceleration(bool enable) {
-    set(Bit::ACCELERATION, enable);
-    if (enable)
-      set(Bit::TORQUE, false);
-    return *this;
-  }
-
-  // 互斥：开力矩时关加速度
-  ControlMask &torque(bool enable) {
-    set(Bit::TORQUE, enable);
-    if (enable)
-      set(Bit::ACCELERATION, false);
-    return *this;
-  }
-  // 查询函数，查询当前使能那些控制环节
-  bool has_position() const { return has(Bit::POSITION); }
-  bool has_velocity() const { return has(Bit::VELOCITY); }
-  bool has_attitude() const { return has(Bit::ATTITUDE); }
-  bool has_thrust() const { return has(Bit::THRUST); }
-  bool has_acceleration() const { return has(Bit::ACCELERATION); }
-  bool has_torque() const { return has(Bit::TORQUE); }
-  // 输出掩码
-  uint32_t value() const { return mask_; }
-  // 清除掩码
-  void clear() { mask_ = 0u; }
-
-private:
-  // 设置掩码
-  void set(Bit b, bool enable) {
-    const uint32_t v = static_cast<uint32_t>(b);
-    if (enable)
-      mask_ |= v;
-    else
-      mask_ &= ~v;
-  }
-  // 查询掩码
-  bool has(Bit b) const { return (mask_ & static_cast<uint32_t>(b)) != 0u; }
-
-  uint32_t mask_;
-};
-
-// 控制器输出变量
-struct Control_Output {
-  // EIGEN 对齐
-  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
-  // 默认构造函数
-  Control_Output() = default;
-
-  // 首先是掩码，构造默认为不使能任何控制环
-  ControlMask mask_;
-  // -------setpoint_raw/local----------
-  // 位置环控制
-  Eigen::Vector3d position = Eigen::Vector3d::Zero();
-  // 速度环控制
-  Eigen::Vector3d velocity = Eigen::Vector3d::Zero();
-  // 加速度控制
-  Eigen::Vector3d acceleration = Eigen::Vector3d::Zero();
-  // 力矩控制
-  Eigen::Vector3d force = Eigen::Vector3d::Zero();
-  // yaw角控制
-  float yaw = 0.0f;
-  float yaw_rate = 0.0f;
-  // -------setpoint_raw/attitude----------
-  // 四元数表示姿态
-  Eigen::Quaterniond orientation = Eigen::Quaterniond::Identity();
-  // 机体角速度(绕轴)
-  Eigen::Vector3d body_rate = Eigen::Vector3d::Zero();
-  // 归一化推力
-  float thrust = 0.0f;
-};
-
-// 控制器基本模式，所有子类控制器应该兼容
-enum class Base_Controller_Stage {
-  GROUND = 0, ///< 在地面阶段
-  ARM,        ///< 解锁阶段
-  TAKEOFF,    ///< 起飞阶段
-  HOVER,      ///< 悬停
-  MOVE,       ///< 运动
-  LANDING,    ///< 降落阶段
-  EMERGENCY,  ///< 紧急处理阶段（优先级最高）
-};
-
-
-
+/**
+ * @class Base_Controller
+ * @brief 无人机控制器抽象基类，定义了起飞、降落及核心运动接口。
+ * @note 所有子类控制器必须实现参数加载逻辑，确保读取无人机配置参数。
+ */
 class Base_Controller {
-	
 public:
-	Base_Controller(ros::NodeHandle &nh);
-  virtual ~Base_Controller() = default;
-	// virtual 前缀为派生类可重写函数
-	// virtual function() = 0 为纯虚函数，子类必须自己重写
-	// 加载参数
-  virtual bool load_para() = 0;
+  Base_Controller() : has_loadparam(false), is_emergency(false) {}
+  virtual ~Base_Controller() {} // 必须为虚析构
+
+  /**
+   * @brief 从 ROS 参数服务器加载配置
+   * @return true 加载成功；false 加载失败，FSM 应拒绝切换至此控制器
+   */
+  virtual bool load_param(ros::NodeHandle &nh) = 0;
+
+  /** @brief 设置切换到起飞模式 */
+  virtual bool set_takeoff_mode(void);
+  /** @brief 获取飞控的解锁状态 */
+  virtual bool get_arm_state(bool arm_state_);
+  /** @brief 设置切换到着陆模式 */
+  virtual bool set_land_mode(void);
+
+  /** @brief 切换到紧急降落模式 */
+  virtual bool set_emergency_mode(void);
+
+  /** @brief 向外反馈控制器当前状态 */
+  virtual ControllerState get_controller_state();
+
+  /** @brief 设置无人机当前里程计 */
+  virtual bool set_current_odom(const nav_msgs::Odometry &current_state_msg);
+
+  /** @brief 传入无人机当前姿态(此处从px4飞控拿到imu姿态数据) */
+  virtual bool set_px4_attitude(const sensor_msgs::Imu &imu_msg);
+
+  /** @brief 控制器的期望，设计为全状态的轨迹点 */
+  virtual bool set_trajectory(const TrajectoryPoint &tarjectory_);
+  // 当我们谈到传入轨迹的时候，我们实际上在讨论什么？
+
+  /**
+   * @brief 控制律核心更新循环，由 FSM 定时调用。
+   * @return 控制输出（位置+速度+姿态+推力+输出掩码）。
+   */
+  virtual ControllerOutput update(void) = 0;
+
+protected:            // 修改为 protected，方便子类状态检查
+  bool has_loadparam; ///< 初始化状态位，执行 takeoff 前需检查
+  bool is_emergency;  ///< 紧急状态标志，使能时强制进入 emergency_land
 	
-	// 设置控制器的模式
-	virtual void set_mode(Base_Controller_Stage stage_);
-
-	// 设置当前里程计信息
-	virtual void set_currentstate(const uav_common::UAVStateEstimate& uav_state_);
-	// 设置期望的目标
-	virtual void set_desiredstate(const uav_common::UAVStateEstimate& des_state_);
-	// 控制器停止输出
-	virtual void stop();
-
-	// 检查是否解锁
-	virtual bool has_arm() const;
-	// 检查是否起飞成功
-	virtual bool has_takeoff() const;
-
-	virtual Control_Output update() = 0;
-
-private:
-  // 节点句柄
-  ros::NodeHandle nh;
-  // 控制器模式
-  uint8_t controller_mode;
-  // 控制器输出
-  Control_Output controller_output_;
-  // 里程计输入
-	uav_common::UAVStateEstimate uav_state_;
-	uav_common::UAVStateEstimate des_state_;
-	// 解锁状态
-	bool arm_state = false;
-	// 起飞状态
-	bool takeoff_state = false;
-	// 降落状态 
-	bool land_state = false;
+	bool arm_state_; ///< 无人机当前是否解锁，请注意，当切换到TAKEOFF模式而未解锁时，根据PX4的控制逻辑，控制器需要自行考虑如何根据控制器的特性设置输出
+	/// < example px4位置控制器，在解锁前，takeoff阶段，输出的控制量更新为(home_x,home_y,takeoff_z,home_yaw)
+	/// < example px4姿态控制器，在解锁前，takeoff阶段，输出的控制量更新为(姿态四元数)+（怠速推力）
+  
+	// 控制器内部状态机
+  ControllerState controller_state_ = ControllerState::OFF;
+  // 构造函数保证初始化时为0或者单位姿态
+  UAVStateEstimate current_state_;
+	Eigen::Quaterniond px4_attitude;
 };
+
+} // namespace uav_control
+
+
+namespace uav_control {
+
+// 设置起飞模式，仅允许在OFF模式下切换到TAKEOFF
+inline bool Base_Controller::set_takeoff_mode(void){
+	if(controller_state_ == ControllerState::OFF){
+		controller_state_ = ControllerState::TAKEOFF;
+		return true;
+	}
+	return false;
+};
+
+// 设置LAND模式，允许在除OFF以外的任何模式下切换到LAND模式
+inline bool Base_Controller::set_land_mode(){
+	if(controller_state_ == ControllerState::OFF)
+		return false;
+	controller_state_ = ControllerState::LAND;
+	return true;
+};
+inline bool Base_Controller::set_emergency_mode(){
+	controller_state_ = ControllerState::EMERGENCY_LAND;
+	return true;
+};
+
+}

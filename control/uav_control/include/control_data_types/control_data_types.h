@@ -46,6 +46,16 @@ enum class ControllerState{
 // 控制器标准的输入(全量轨迹)，根据不同的任务情况构造不同的轨迹参数（构造指的是FSM进行构造）
 // controller.get_input(std::vector<uav_control::TrajectoryPoint> tarjectory)
 
+/* 1. 队列优先级和抢占优先级
+队列优先级指的是，同时有两个控制量到达，一个是ego_planner这种外部导航算法输出的轨迹，另一个是像遥控器/地面站这种输出的命令，本质上都会转换成控制器的标准轨迹输入
+但是我们认为这两者之间是有优先级的，举例
+当ego_planner进行导航时，我们突然希望他做一些别的事情，此时来自遥控器/地面站的控制量会打断原有的ego_planner的控制
+
+
+抢占优先级指的是，同一队列优先级的控制量，最新的控制量会覆盖原来的控制量，举例
+在地面站指点飞行，无人机进行位置控制模式，此时在运动过程中，无人机尚未到达目标点，地面站设置停止，希望在当前位置悬停，切换到HOVER
+此时，新的控制量会打断旧的控制量
+*/
 // 单个时刻的参考点（轨迹点）
 struct TrajectoryPoint {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -59,6 +69,9 @@ struct TrajectoryPoint {
   double yaw_rate{0.0};                         // rad/s
 	double yaw_acc{0.0};													// rad/s^2
 	uint32_t trajectory_id;												// 区分不同时刻的轨迹
+	// 来源优先级与抢占优先级
+	// uint8_t source_priority;
+	// uint8_t preemption_priority;
 };
 
 /**
