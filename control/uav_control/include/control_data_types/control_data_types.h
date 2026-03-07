@@ -4,14 +4,15 @@
 */
 #pragma once
 
+#include <Eigen/Core>
+#include <Eigen/Geometry>
+
+#include "ros/duration.h"
 #include <Eigen/Dense>
 #include <cstdint>
+#include <ros/time.h>
 #include <string>
 #include <vector>
-#include <ros/time.h>
-#include "Eigen/src/Core/Matrix.h"
-#include "Eigen/src/Geometry/Quaternion.h"
-#include "ros/duration.h"
 
 namespace uav_control {
 
@@ -19,6 +20,7 @@ namespace uav_control {
  * @brief 状态机 状态定义
  */
 enum class ControlState {
+  UNDEFINED,
   OFF,
   TAKEOFF,
   LAND,
@@ -34,13 +36,14 @@ enum class ControlState {
 
 // 这个是控制器内部的状态机，设计这个类型的原因是，
 // 无人机在起飞降落阶段和悬停运动阶段，具有不同的动力学特性，控制器需要考虑到这一点
-enum class ControllerState{
-	OFF,
-	TAKEOFF,
-	LAND,
-	EMERGENCY_LAND,
-	HOVER,
-	MOVE
+enum class ControllerState {
+  UNDEFINED,
+  OFF,
+  TAKEOFF,
+  LAND,
+  EMERGENCY_LAND,
+  HOVER,
+  MOVE
 };
 
 // 控制器标准的输入(全量轨迹)，根据不同的任务情况构造不同的轨迹参数（构造指的是FSM进行构造）
@@ -60,18 +63,18 @@ enum class ControllerState{
 struct TrajectoryPoint {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   ros::Duration time_from_start;
-  Eigen::Vector3d position{Eigen::Vector3d::Zero()};  // m
-  Eigen::Vector3d velocity{Eigen::Vector3d::Zero()};  // m/s
-  Eigen::Vector3d acceleration{Eigen::Vector3d::Zero()};  // m/s^2
-  Eigen::Vector3d jerk{Eigen::Vector3d::Zero()};  // m/s^3
-	Eigen::Vector3d snap{Eigen::Vector3d::Zero()};	 // m/s^4
-  double yaw{0.0};                              // rad
-  double yaw_rate{0.0};                         // rad/s
-	double yaw_acc{0.0};													// rad/s^2
-	uint32_t trajectory_id;												// 区分不同时刻的轨迹
-	// 来源优先级与抢占优先级
-	// uint8_t source_priority;
-	// uint8_t preemption_priority;
+  Eigen::Vector3d position{Eigen::Vector3d::Zero()};     // m
+  Eigen::Vector3d velocity{Eigen::Vector3d::Zero()};     // m/s
+  Eigen::Vector3d acceleration{Eigen::Vector3d::Zero()}; // m/s^2
+  Eigen::Vector3d jerk{Eigen::Vector3d::Zero()};         // m/s^3
+  Eigen::Vector3d snap{Eigen::Vector3d::Zero()};         // m/s^4
+  double yaw{0.0};                                       // rad
+  double yaw_rate{0.0};                                  // rad/s
+  double yaw_acc{0.0};                                   // rad/s^2
+  uint32_t trajectory_id;                                // 区分不同时刻的轨迹
+  // 来源优先级与抢占优先级
+  // uint8_t source_priority;
+  // uint8_t preemption_priority;
 };
 
 /**
@@ -79,10 +82,15 @@ struct TrajectoryPoint {
  */
 enum class ControllerOutputMask : uint32_t {
   UNDEFINED = 0U,
-  POSITION = 1U << 0,  ///< position 字段有效
-  VELOCITY = 1U << 1,  ///< velocity 字段有效
-  ATTITUDE = 1U << 2,  ///< attitude 字段有效
-  THRUST = 1U << 3,    ///< thrust 字段有效
+  POSITION = 1U << 0, ///< position 字段有效
+  VELOCITY = 1U << 1, ///< velocity 字段有效
+  ACCELERATION = 1U << 2,
+  FORCE = 1U << 3,
+  YAW = 1U << 4,
+  YAW_RATE = 1U << 5,
+  ATTITUDE = 1U << 6, ///< attitude 字段有效
+  BODY_RATE = 1U << 7,
+  THRUST = 1U << 8 ///< thrust 字段有效
 };
 
 // ControllerOutput output;
@@ -123,16 +131,22 @@ struct ControllerOutput {
     return (output_mask & static_cast<uint32_t>(item)) != 0U;
   }
 
-  Eigen::Vector3d position = Eigen::Vector3d::Zero();  ///< 期望位置（世界系）
-  Eigen::Vector3d velocity = Eigen::Vector3d::Zero();  ///< 期望速度（世界系）
-  Eigen::Quaterniond attitude = Eigen::Quaterniond::Identity();  ///< 期望姿态
-  double thrust = 0.0f;  ///< 期望总推力（归一化或物理量由下游约定）
-  uint32_t output_mask = static_cast<uint32_t>(
-      ControllerOutputMask::UNDEFINED);  ///< 输出掩码，组合
-                                         ///< ControllerOutputMask
+  // PositionTarget 对应字段
+  Eigen::Vector3d position = Eigen::Vector3d::Zero(); ///< POSITION
+  Eigen::Vector3d velocity = Eigen::Vector3d::Zero(); ///< VELOCITY
+  Eigen::Vector3d acceleration_or_force =
+      Eigen::Vector3d::Zero(); ///< ACCELERATION / FORCE
+  double yaw = 0.0;            ///< YAW
+  double yaw_rate = 0.0;       ///< YAW_RATE
+
+  // AttitudeTarget 对应字段
+  Eigen::Quaterniond attitude = Eigen::Quaterniond::Identity(); ///< ATTITUDE
+  Eigen::Vector3d body_rate = Eigen::Vector3d::Zero();          ///< BODY_RATE
+  double thrust = 0.0;                                          ///< THRUST
+
+  uint32_t output_mask = static_cast<uint32_t>(ControllerOutputMask::UNDEFINED);
 };
 
 // 是否应当在这里表示出控制器的期望输出，或者说控制器的期望输出是什么样的？
 
-
-};  // namespace uav_control
+}; // namespace uav_control

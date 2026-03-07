@@ -7,157 +7,184 @@
  * 本文件定义 `PX4_Position_Controller` 类，用于对接 PX4 内部位置控制能力。
  */
 
-#include "controller/base_controller/base_controller.h"
+#include "controller/base_controller/base_controller.hpp"
 
-namespace uav_controller {
+namespace uav_control {
 
-/**
- * @class PX4_Position_Controller
- * @brief 基于 PX4 位置环的控制器实现。
- */
-class PX4_Position_Controller : public Base_Controller {
+// 从基类控制器继承，设计基于px4位置环的控制器
+class Position_Controller : public Base_Controller {
 public:
-  /**
-   * @brief 控制器飞行阶段。
-   */
-  enum class FlightStage {
-    GROUND = 0, ///< 在地面阶段
-    TAKEOFF,    ///< 起飞阶段
-    AIR,        ///< 空中巡航/任务阶段
-    LANDING,    ///< 降落阶段
-    EMERGENCY,  ///< 紧急处理阶段（优先级最高）
-  };
-
-  /**
-   * @brief 控制器参数集合。
-   *
-   * 约定：
-   * - 单位默认使用 SI；
-   * - 误差阈值用于阶段切换判据；
-   * - 状态超时用于防止使用过期状态继续控制。
-   */
-  struct Config {
-    float takeoff_height_m{1.5F};             ///< 起飞目标相对高度（m）。
-    float takeoff_climb_mps{0.6F};            ///< 起飞爬升速度（m/s）。
-    float landing_descent_mps{0.5F};          ///< 降落下降速度（m/s）。
-    float emergency_descent_mps{1.2F};        ///< 紧急下降速度（m/s）。
-    float position_error_tolerance_x_m{0.15F}; ///< X 方向到位阈值（m）。
-    float position_error_tolerance_y_m{0.15F}; ///< Y 方向到位阈值（m）。
-    float position_error_tolerance_z_m{0.15F}; ///< Z 方向到位阈值（m）。
-    float state_timeout_s{0.2F};              ///< 输入状态超时阈值（s）。
-  };
-
-  /**
-   * @brief 构造 PX4 位置控制器。
-   */
-  PX4_Position_Controller() = default;
-
-  /** @brief 加载控制参数。 */
-  bool load_param(ros::NodeHandle &nh) override;
-
-  /**
-   * @brief 加载控制参数，并可选下发 PID 到 PX4。
-   * @param nh ROS 节点句柄。
-   * @param push_pid_params_to_px4 true 表示同步 PID 参数到 PX4。
-   */
-  bool load_param(ros::NodeHandle &nh, bool push_pid_params_to_px4 = false);
-
-  /** @brief 切换到起飞模式。 */
-  bool set_takeoff_mode() override;
-
-  /** @brief 切换到降落模式。 */
-  bool set_land_mode() override;
-
-  /** @brief 切换到紧急模式。 */
-  bool set_emergency_mode() override;
-
-  /** @brief 根据当前/期望状态更新控制输出。 */
-  uav_controller::ControlOutput update() override;
-
-  /** @brief 判定起飞阶段是否完成。 */
-  bool ensure_takeoff_completed() const override;
-
-  /** @brief 判定降落阶段是否完成。 */
-  bool ensure_land_completed() const override;
-
-  /** @brief 判定紧急降落是否完成。 */
-  bool ensure_emergency_land_completed() const override;
-
-  /**
-   * @brief 设置当前飞行阶段。
-   * @param stage 飞行阶段枚举值。
-   */
-  void set_flight_stage(FlightStage stage) { flight_stage_ = stage; }
-
-  /**
-   * @brief 获取当前飞行阶段。
-   * @return 当前飞行阶段。
-   */
-  FlightStage flight_stage() const { return flight_stage_; }
-
-  /**
-   * @brief 获取控制器当前配置。
-   * @return 配置只读引用。
-   */
-  const Config &config() const { return config_; }
-
+  bool load_param(ros::NodeHandle &nh) override; // 重写加载参数函数
+  ControllerOutput update(void) override;        // 重写控制器更新函数
 private:
-  /**
-   * @brief 内部检查：输入状态是否满足控制更新前提。
-   * @return true 表示可以进行控制计算。
-   */
-  bool validate_state_inputs() const;
-
-  /**
-   * @brief 检查指定状态是否超时。
-   * @param state 待检查状态。
-   * @param now 当前时刻。
-   * @return true 表示状态新鲜；false 表示超时。
-   */
-  bool is_state_fresh(const uav_common::UAVStateEstimate &state,
-                      const ros::Time &now) const;
-
-  /**
-   * @brief 判断当前位置是否已到达目标。
-   * @param target 目标状态。
-   * @return true 表示位置误差在阈值内。
-   */
-  bool is_position_reached(const uav_common::UAVStateEstimate &target) const;
-
-  /**
-   * @brief 生成地面待机阶段控制输出。
-   */
-  ControlOutput build_ground_output() const;
-
-  /**
-   * @brief 生成起飞阶段控制输出。
-   */
-  ControlOutput build_takeoff_output() const;
-
-  /**
-   * @brief 生成空中控制阶段输出。
-   */
-  ControlOutput build_air_output() const;
-
-  /**
-   * @brief 生成降落阶段控制输出。
-   */
-  ControlOutput build_landing_output() const;
-
-  /**
-   * @brief 生成紧急阶段控制输出。
-   */
-  ControlOutput build_emergency_output() const;
-
-  /**
-   * @brief 基于判据更新阶段机（不直接修改状态机，仅控制内部阶段）。
-   */
-  void update_flight_stage_by_conditions();
-
-  Config config_{};                           ///< 参数配置缓存。
-  FlightStage flight_stage_{FlightStage::GROUND}; ///< 控制器内部阶段。
-  ros::Time stage_enter_time_{};              ///< 当前阶段进入时间。
-  double takeoff_start_z_m_{0.0};             ///< 起飞起始高度（用于相对高度判据）。
 };
 
-} // namespace uav_controller
+// TODO：代码待完善
+inline bool Position_Controller::load_param(ros::NodeHandle &nh) {
+  if (!nh.getParam("/uav_ns", uav_ns)) {
+    return false;
+  }
+
+  // 规范化命名空间：支持 "uav1" 或 "/uav1"
+  std::string ns = uav_ns;
+  if (ns.empty())
+    return false;
+  if (ns.front() != '/')
+    ns = "/" + ns;
+  if (ns.back() == '/')
+    ns.pop_back();
+
+  const std::string takeoff_key = ns + "/takeoff_param";
+  const std::string tol_key = ns + "/error_tolerance";
+  const std::string hold_key = ns + "/takeoff_holdtime";
+
+  if (!nh.getParam(takeoff_key, takeoff_param))
+    return false;
+  if (!nh.getParam(tol_key, error_tolerance))
+    return false;
+  if (!nh.getParam(hold_key, takeoff_holdtime_param))
+    return false;
+
+  return true;
+}
+
+inline ControllerOutput Position_Controller::update(void) {
+  // 首先构造输出
+  ControllerOutput temp_output;
+  // 根据当前的状态进行更新
+  switch (controller_state_) {
+  case ControllerState::UNDEFINED: {
+    // 如果是UNDEFINE阶段，则说明无人机并没有做好准备，因此此时什么都不执行
+    return temp_output;
+  };
+  case ControllerState::OFF: {
+    // OFF阶段，此时无人机在地面上静止，不进行输出
+    return temp_output;
+  };
+  case ControllerState::TAKEOFF: {
+    // 未解锁：持续发零速度，保持控制链路活跃
+    if (!px4_arm_state_) {
+      temp_output.channel_enable(ControllerOutputMask::VELOCITY);
+      temp_output.velocity.x() = 0.0;
+      temp_output.velocity.y() = 0.0;
+      temp_output.velocity.z() = 0.0;
+      return temp_output;
+    }
+
+    // 已解锁，越界保护，如果参数没有正常加载，则依旧输出零速度
+    if (takeoff_param.size() < 3 || error_tolerance.size() < 3) {
+      takeoff_holdstart_time = ros::Time(0);
+      takeoff_holdkeep_time = ros::Time(0);
+
+      temp_output.channel_enable(ControllerOutputMask::VELOCITY);
+      temp_output.velocity.x() = 0.0;
+      temp_output.velocity.y() = 0.0;
+      temp_output.velocity.z() = 0.0;
+      return temp_output;
+    }
+
+    // 111的二进制是0x07
+    constexpr uint8_t kTakeoffReadyMask = 0x07U;
+    uint8_t takeoff_ready = 0U;
+    // 计算误差
+    const double ex = std::abs(takeoff_param[0] - current_state_.position.x());
+    const double ey = std::abs(takeoff_param[1] - current_state_.position.y());
+    const double ez = std::abs(takeoff_param[2] - current_state_.position.z());
+    // 如果误差在容许的范围内，置位
+    if (ex < error_tolerance[0])
+      takeoff_ready |= (1U << 0);
+    if (ey < error_tolerance[1])
+      takeoff_ready |= (1U << 1);
+    if (ez < error_tolerance[2])
+      takeoff_ready |= (1U << 2);
+
+    // 根据在期望的起飞位置误差内的持续时间来判断是否达到了稳定的阶段
+    const ros::Time now = ros::Time::now();
+    if (takeoff_ready == kTakeoffReadyMask) {
+      if (takeoff_holdstart_time.isZero()) {
+        takeoff_holdstart_time = now;
+        takeoff_holdkeep_time = now;
+      } else {
+        takeoff_holdkeep_time = now;
+        const ros::Duration hold_time = now - takeoff_holdstart_time;
+        // 最低要保证2s的稳定时间
+        const double hold_required =
+            (takeoff_holdtime_param > 2.0) ? takeoff_holdtime_param : 2.0;
+        if (hold_time.toSec() >= hold_required) {
+          // 设置轨迹点为当前起飞参数
+          trajectory_.position.x() = takeoff_param[0];
+          trajectory_.position.y() = takeoff_param[1];
+          trajectory_.position.z() = takeoff_param[2];
+          // 切换到HOVER状态
+          controller_state_ = ControllerState::HOVER;
+        }
+      }
+    } else {
+      // 任一轴超出容差，重置计时
+      takeoff_holdstart_time = ros::Time(0);
+      takeoff_holdkeep_time = ros::Time(0);
+    }
+
+    // 持续输出起飞目标点
+    temp_output.channel_enable(ControllerOutputMask::POSITION);
+    temp_output.position.x() = takeoff_param[0];
+    temp_output.position.y() = takeoff_param[1];
+    temp_output.position.z() = takeoff_param[2];
+    return temp_output;
+  }
+  case ControllerState::HOVER: {
+    // HOVER状态下，设置输出为当前轨迹点
+    temp_output.channel_enable(ControllerOutputMask::POSITION);
+    temp_output.position = trajectory_.position;
+    return temp_output;
+  };
+  case ControllerState::MOVE: {
+    // 当切换到MOVE时，通常是接受到了相关的控制指令
+    if (!trajectory_.position.isZero()) {
+      temp_output.channel_enable(ControllerOutputMask::POSITION);
+      temp_output.position = trajectory_.position;
+    }
+    if (!trajectory_.velocity.isZero()) {
+      temp_output.channel_enable(ControllerOutputMask::VELOCITY);
+      temp_output.velocity = trajectory_.velocity;
+    }
+    if (!trajectory_.acceleration.isZero()) {
+      temp_output.channel_enable(ControllerOutputMask::ACCELERATION);
+      temp_output.acceleration_or_force = trajectory_.acceleration;
+    }
+    if (trajectory_.yaw != 0.0) {
+      temp_output.channel_enable(ControllerOutputMask::YAW);
+      temp_output.yaw = trajectory_.yaw;
+    }
+
+    if (trajectory_.yaw_rate != 0.0) {
+      temp_output.channel_enable(ControllerOutputMask::YAW_RATE);
+      temp_output.yaw = trajectory_.yaw_rate;
+    }
+
+    // position_controller
+    // 不支持对姿态，推力，加加速度，加加加速度进行调整
+    return temp_output;
+  };
+  case ControllerState::LAND: {
+		// LAND使用XY的位置控制+Z的速度控制
+		temp_output.channel_enable(ControllerOutputMask::POSITION);
+		temp_output.position.x() = trajectory_.position.x();
+		temp_output.position.y() = trajectory_.position.y();
+		// 不对temp_outpout.position.z()进行复制，这样会默认禁用掉Z的位置控制
+		temp_output.channel_enable(ControllerOutputMask::VELOCITY);
+		temp_output.velocity.z() = 
+
+
+
+    break;
+  };
+  case ControllerState::EMERGENCY_LAND: {
+    break;
+  };
+  }
+
+  return temp_output;
+};
+
+} // namespace uav_control
