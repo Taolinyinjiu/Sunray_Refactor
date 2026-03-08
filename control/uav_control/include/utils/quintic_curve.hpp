@@ -1,11 +1,19 @@
+/***
+	@brief quintic_curve 五次项曲线
+	输出连续的 位置 速度 加速度
+*/
+
+
 #pragma once
 
-#include "control_data_types/Curve_data_types.h"
+#include "control_data_types/curve_data_types.h"
 #include <Eigen/Dense>
 #include <algorithm>
 #include <cmath>
 
 namespace uav_control {
+
+
 
 inline Curve_Output get_quintic_curve(const Eigen::Vector3d &start_point,
                                       const Eigen::Vector3d &end_point,
@@ -42,7 +50,7 @@ inline Curve_Output get_quintic_curve(const Eigen::Vector3d &start_point,
   const double inv_keep_time2 = inv_keep_time * inv_keep_time;
   temp_output.velocity = d_blend * inv_keep_time * delta;
   temp_output.acceleration = dd_blend * inv_keep_time2 * delta;
-
+	temp_output.curve_status = true;
   return temp_output;
 }
 
