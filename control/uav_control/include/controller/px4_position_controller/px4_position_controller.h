@@ -8,6 +8,7 @@
  */
 
 #include "controller/base_controller/base_controller.hpp"
+#include "utils/quintic_curve.hpp"
 
 namespace uav_control {
 
@@ -17,6 +18,8 @@ public:
   bool load_param(ros::NodeHandle &nh) override; // 重写加载参数函数
   ControllerOutput update(void) override;        // 重写控制器更新函数
 private:
+	// 设计一个五次项曲线生成器，用来生成轨迹	
+	Quintic_Curve	quintic_curve_generation;
 };
 
 // TODO：代码待完善
@@ -167,17 +170,23 @@ inline ControllerOutput Position_Controller::update(void) {
     return temp_output;
   };
   case ControllerState::LAND: {
-		// LAND使用XY的位置控制+Z的速度控制
+		// 构造五次项曲线
+		// 将当前轨迹点作为起点
+		quintic_curve_generation.set_start_position(trajectory_.position);
+		// 将当前轨迹点的xy位置作为降落的xy位置，设置z轴位置为0
+		quintic_curve_generation.set_end_position(Eigen::Vector3d(trajectory_.position.x(),trajectory_.position.y(),takeoff_param[2]));
+    // 通过当前的z轴高度生成对应曲线参数
+		quintic_curve_generation.generate_by_z_height(current_state_.position.z());
+		// 使能位置，速度，加速度输出
 		temp_output.channel_enable(ControllerOutputMask::POSITION);
-		temp_output.position.x() = trajectory_.position.x();
-		temp_output.position.y() = trajectory_.position.y();
-		// 不对temp_outpout.position.z()进行复制，这样会默认禁用掉Z的位置控制
 		temp_output.channel_enable(ControllerOutputMask::VELOCITY);
-		temp_output.velocity.z() = 
-
-
-
-    break;
+		temp_output.channel_enable(ControllerOutputMask::ACCELERATION);
+		// 设置输出量
+		temp_output.position = quintic_curve_generation.get_position();
+		temp_output.velocity = quintic_curve_generation.get_velocity();
+		temp_output.acceleration_or_force = quintic_curve_generation.get_acceleration();
+		// 返回输出量
+		return temp_output;
   };
   case ControllerState::EMERGENCY_LAND: {
     break;

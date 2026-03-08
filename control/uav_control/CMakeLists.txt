@@ -273,6 +273,16 @@ if(CATKIN_ENABLE_TESTING)
     )
   endif()
 
+  catkin_add_gtest(uav_control_quintic_curve_ut
+    test/unit/test_quintic_curve.cpp
+  )
+  if(TARGET uav_control_quintic_curve_ut)
+    target_link_libraries(uav_control_quintic_curve_ut
+      ${catkin_LIBRARIES}
+      ${EIGEN3_LIBRARIES}
+    )
+  endif()
+
 endif()
 
 ## Add folders to be run by python nosetests
