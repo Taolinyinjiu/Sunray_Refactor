@@ -8,6 +8,7 @@
  */
 
 #include "controller/base_controller/base_controller.hpp"
+#include "ros/time.h"
 #include "utils/quintic_curve.hpp"
 
 namespace uav_control {
@@ -20,6 +21,7 @@ public:
 private:
 	// 设计一个五次项曲线生成器，用来生成轨迹	
 	Quintic_Curve	quintic_curve_generation;
+
 };
 
 // TODO：代码待完善
@@ -41,7 +43,7 @@ inline bool Position_Controller::load_param(ros::NodeHandle &nh) {
   const std::string tol_key = ns + "/error_tolerance";
   const std::string hold_key = ns + "/takeoff_holdtime";
 
-  if (!nh.getParam(takeoff_key, takeoff_param))
+  if (!nh.getParam(takeoff_key, takeoff_position))
     return false;
   if (!nh.getParam(tol_key, error_tolerance))
     return false;
@@ -171,12 +173,32 @@ inline ControllerOutput Position_Controller::update(void) {
   };
   case ControllerState::LAND: {
 		// 构造五次项曲线
-		// 将当前轨迹点作为起点
+		// 首先判断是否为第一次进入LAND,通过判断起点是否为trajecotry_,终点是否为land_point
+		if(quintic_curve_generation.get_start_position() != trajectory_.position && quintic_curve_generation.get_end_position()!= land_position)
+		{
+			// 清除原有轨迹生成器参数
+			quintic_curve_generation.clear_all();
+			// 注入降落轨迹参数
+			quintic_curve_generation.set_start_position(trajectory_.position);
+			quintic_curve_generation.set_end_position(land_position);
+		}
+
+
+
+		// 如果开始时间为0，说明是是刚进入land模式，设置开始时间为当前
+		if(quintic_curve_generation.get_start_time() == ros::Time(0))
+		{
+			quintic_curve_generation.clear_all();
+			quintic_curve_generation.set_start_time(ros::Time::now());
+
+		}// 将当前轨迹点作为起点
+		// 即使开始时间存在，需要考虑是否为之前控制器没有清除时间参数，需要检查开始position
+		else if(quintic_curve_generation.)
 		quintic_curve_generation.set_start_position(trajectory_.position);
 		// 将当前轨迹点的xy位置作为降落的xy位置，设置z轴位置为0
 		quintic_curve_generation.set_end_position(Eigen::Vector3d(trajectory_.position.x(),trajectory_.position.y(),takeoff_param[2]));
-    // 通过当前的z轴高度生成对应曲线参数
-		quintic_curve_generation.generate_by_z_height(current_state_.position.z());
+    // 
+		
 		// 使能位置，速度，加速度输出
 		temp_output.channel_enable(ControllerOutputMask::POSITION);
 		temp_output.channel_enable(ControllerOutputMask::VELOCITY);

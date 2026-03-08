@@ -184,6 +184,7 @@ target_link_libraries(px4_manager_lib INTERFACE
 
 add_executable(quintic_curve_test_node
   src/demo/quintic_curve_test_node.cpp
+  src/utils/quintic_curve.cpp
 )
 target_link_libraries(quintic_curve_test_node
   ${catkin_LIBRARIES}
@@ -276,16 +277,6 @@ if(CATKIN_ENABLE_TESTING)
   )
   if(TARGET uav_control_px4_param_types_ut)
     target_link_libraries(uav_control_px4_param_types_ut
-      ${catkin_LIBRARIES}
-      ${EIGEN3_LIBRARIES}
-    )
-  endif()
-
-  catkin_add_gtest(uav_control_quintic_curve_ut
-    test/unit/test_quintic_curve.cpp
-  )
-  if(TARGET uav_control_quintic_curve_ut)
-    target_link_libraries(uav_control_quintic_curve_ut
       ${catkin_LIBRARIES}
       ${EIGEN3_LIBRARIES}
     )

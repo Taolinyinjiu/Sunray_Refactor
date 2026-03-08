@@ -22,12 +22,12 @@ geometry_msgs::Vector3 to_ros_vector3(const Eigen::Vector3d &vec) {
 class QuinticCurveTestNode {
 public:
   QuinticCurveTestNode() : nh_(), pnh_("~") {
-    double start_x = 0.0;
-    double start_y = 0.0;
-    double start_z = 0.0;
-    double end_x = 0.0;
-    double end_y = 0.0;
-    double end_z = 1.0;
+    double start_x = 1.0;
+    double start_y = 1.0;
+    double start_z = 2.0;
+    double end_x = 1.0;
+    double end_y = 1.0;
+    double end_z = 0.0;
     pnh_.param("start_x", start_x, start_x);
     pnh_.param("start_y", start_y, start_y);
     pnh_.param("start_z", start_z, start_z);
@@ -37,7 +37,7 @@ public:
     start_point_ = Eigen::Vector3d(start_x, start_y, start_z);
     end_point_ = Eigen::Vector3d(end_x, end_y, end_z);
 
-    pnh_.param("keep_time", keep_time_, 5.0);
+    pnh_.param("keep_time", keep_time_, 8.0);
     if (keep_time_ <= 0.0) {
       ROS_WARN("[QuinticCurveTest] keep_time <= 0, force to 5.0");
       keep_time_ = 5.0;
@@ -51,12 +51,17 @@ public:
 
     pnh_.param("loop", loop_, false);
     pnh_.param("publish_initial_sample", publish_initial_sample_, true);
+    pnh_.param("use_generate_test", use_generate_test_, true);
     pnh_.param("frame_id", frame_id_, std::string("map"));
     pnh_.param("topic_prefix", topic_prefix_, std::string("quintic_curve_test"));
     pnh_.param("start_delay_s", start_delay_s_, 0.0);
     if (start_delay_s_ < 0.0) {
       start_delay_s_ = 0.0;
     }
+
+    curve_.set_start_position(start_point_);
+    curve_.set_end_position(end_point_);
+    curve_.set_keep_time(keep_time_);
 
     position_pub_ = nh_.advertise<geometry_msgs::PointStamped>(
         topic_prefix_ + "/position", 10);
@@ -68,11 +73,12 @@ public:
         nh_.advertise<std_msgs::Bool>(topic_prefix_ + "/curve_status", 10);
 
     start_time_ros_ = ros::Time::now() + ros::Duration(start_delay_s_);
+    reset_curve_start_time(start_time_ros_);
     timer_ = nh_.createTimer(ros::Duration(1.0 / publish_hz_),
                              &QuinticCurveTestNode::timer_cb, this);
 
     if (publish_initial_sample_) {
-      publish_sample(ros::Time::now(), start_time_ros_.toSec(), 0.0);
+      publish_sample(ros::Time::now(), start_time_ros_);
     }
 
     ROS_INFO(
@@ -88,29 +94,40 @@ public:
   }
 
 private:
-  void publish_sample(const ros::Time &stamp, double sample_time_sec,
-                      double elapsed_s_for_log) {
-    const uav_control::Curve_Output out = uav_control::get_quintic_curve(
-        start_point_, end_point_, start_time_ros_.toSec(), keep_time_,
-        sample_time_sec);
+  void reset_curve_start_time(const ros::Time &new_start_time) {
+    curve_.clear_time();
+    curve_.set_keep_time(keep_time_);
+    const bool ok = curve_.set_start_time(new_start_time);
+    if (!ok) {
+      ROS_WARN("[QuinticCurveTest] failed to set curve start time");
+    }
+  }
+
+  void publish_sample(const ros::Time &stamp, const ros::Time &eval_time) {
+    const bool curve_status =
+        use_generate_test_ ? curve_.generate_land_curve(eval_time)
+                           : curve_.generate_by_current_time(eval_time);
+    const Eigen::Vector3d position = curve_.get_position();
+    const Eigen::Vector3d velocity = curve_.get_velocity();
+    const Eigen::Vector3d acceleration = curve_.get_acceleration();
 
     geometry_msgs::PointStamped pos_msg;
     pos_msg.header.stamp = stamp;
     pos_msg.header.frame_id = frame_id_;
-    pos_msg.point.x = out.position.x();
-    pos_msg.point.y = out.position.y();
-    pos_msg.point.z = out.position.z();
+    pos_msg.point.x = position.x();
+    pos_msg.point.y = position.y();
+    pos_msg.point.z = position.z();
 
     geometry_msgs::Vector3Stamped vel_msg;
     vel_msg.header = pos_msg.header;
-    vel_msg.vector = to_ros_vector3(out.velocity);
+    vel_msg.vector = to_ros_vector3(velocity);
 
     geometry_msgs::Vector3Stamped acc_msg;
     acc_msg.header = pos_msg.header;
-    acc_msg.vector = to_ros_vector3(out.acceleration);
+    acc_msg.vector = to_ros_vector3(acceleration);
 
     std_msgs::Bool status_msg;
-    status_msg.data = out.curve_status;
+    status_msg.data = curve_status;
 
     position_pub_.publish(pos_msg);
     velocity_pub_.publish(vel_msg);
@@ -121,9 +138,9 @@ private:
         1.0,
         "[QuinticCurveTest] t=%.2fs pos=[%.3f %.3f %.3f] vel=[%.3f %.3f %.3f] "
         "acc=[%.3f %.3f %.3f]",
-        elapsed_s_for_log, out.position.x(), out.position.y(), out.position.z(),
-        out.velocity.x(), out.velocity.y(), out.velocity.z(),
-        out.acceleration.x(), out.acceleration.y(), out.acceleration.z());
+        (eval_time - start_time_ros_).toSec(), position.x(), position.y(),
+        position.z(), velocity.x(), velocity.y(), velocity.z(),
+        acceleration.x(), acceleration.y(), acceleration.z());
   }
 
   void timer_cb(const ros::TimerEvent &) {
@@ -131,9 +148,10 @@ private:
 
     if (loop_ && (now - start_time_ros_).toSec() > keep_time_) {
       start_time_ros_ = now;
+      reset_curve_start_time(start_time_ros_);
     }
 
-    publish_sample(now, now.toSec(), (now - start_time_ros_).toSec());
+    publish_sample(now, now);
   }
 
   ros::NodeHandle nh_;
@@ -146,10 +164,12 @@ private:
   double start_delay_s_ = 0.0;
   bool loop_ = false;
   bool publish_initial_sample_ = true;
+  bool use_generate_test_ = true;
 
   std::string frame_id_ = "map";
   std::string topic_prefix_ = "quintic_curve_test";
   ros::Time start_time_ros_;
+  uav_control::Quintic_Curve curve_;
 
   ros::Publisher position_pub_;
   ros::Publisher velocity_pub_;

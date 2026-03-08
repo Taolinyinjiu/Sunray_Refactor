@@ -15,6 +15,7 @@
     <param name="publish_hz" value="50.0" />
     <param name="loop" value="false" />
     <param name="publish_initial_sample" value="true" />
+    <param name="use_generate_test" value="true" />
     <param name="frame_id" value="map" />
     <param name="topic_prefix" value="quintic_curve_test" />
   </node>
