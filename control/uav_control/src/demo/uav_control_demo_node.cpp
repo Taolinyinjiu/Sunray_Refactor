@@ -22,6 +22,12 @@ double yaw_from_quaternion(const geometry_msgs::Quaternion &q) {
   return std::atan2(siny_cosp, cosy_cosp);
 }
 
+double yaw_from_quaternion(const Eigen::Quaterniond &q) {
+  const double siny_cosp = 2.0 * (q.w() * q.z() + q.x() * q.y());
+  const double cosy_cosp = 1.0 - 2.0 * (q.y() * q.y() + q.z() * q.z());
+  return std::atan2(siny_cosp, cosy_cosp);
+}
+
 std::string normalize_token(const std::string &token) {
   std::string out;
   out.reserve(token.size());
@@ -53,6 +59,14 @@ nav_msgs::Odometry normalize_odom(const nav_msgs::Odometry &input) {
 
 class UavControlDemoNode {
 public:
+  enum class PostTakeoffMissionPhase {
+    IDLE = 0,
+    FORWARD_ACTIVE,
+    LEFT_ACTIVE,
+    LAND_REQUESTED,
+    COMPLETED
+  };
+
   struct TimedEvent {
     SunrayEvent event;
     double trigger_time_s;
@@ -71,6 +85,16 @@ public:
     pnh_.param("simulate_armed", simulate_armed_, simulate_armed_);
     pnh_.param("auto_seed_desired_from_odom", auto_seed_desired_from_odom_,
                auto_seed_desired_from_odom_);
+    pnh_.param("post_takeoff_mission_enable", post_takeoff_mission_enable_,
+               post_takeoff_mission_enable_);
+    pnh_.param("post_takeoff_forward_m", post_takeoff_forward_m_,
+               post_takeoff_forward_m_);
+    pnh_.param("post_takeoff_left_m", post_takeoff_left_m_,
+               post_takeoff_left_m_);
+    pnh_.param("post_takeoff_pos_tol_m", post_takeoff_pos_tol_m_,
+               post_takeoff_pos_tol_m_);
+    pnh_.param("post_takeoff_hold_s", post_takeoff_hold_s_,
+               post_takeoff_hold_s_);
     pnh_.param("param_reload_retry_s", param_reload_retry_s_,
                param_reload_retry_s_);
 
@@ -125,6 +149,8 @@ public:
 private:
   void odom_cb(const nav_msgs::OdometryConstPtr &msg) {
     const nav_msgs::Odometry odom_msg = normalize_odom(*msg);
+    last_odom_msg_ = odom_msg;
+    has_last_odom_ = true;
     const uav_control::UAVStateEstimate odom(odom_msg);
     (void)controller_->set_current_odom(odom);
 
@@ -191,6 +217,7 @@ private:
     }
     fsm_.update();
     dispatch_completion_events();
+    update_post_takeoff_mission();
   }
 
   void auto_takeoff_cb(const ros::TimerEvent &) {
@@ -216,6 +243,7 @@ private:
       dispatch_event(SunrayEvent::TAKEOFF_COMPLETED, "TAKEOFF_COMPLETED",
                      "controller");
       takeoff_completed_sent_ = true;
+      maybe_start_post_takeoff_mission();
     }
 
     if (current == SunrayState::LAND && !land_completed_sent_ &&
@@ -402,6 +430,112 @@ private:
     return false;
   }
 
+  void maybe_start_post_takeoff_mission() {
+    if (!post_takeoff_mission_enable_ || post_takeoff_mission_started_) {
+      return;
+    }
+
+    const uav_control::UAVStateEstimate current_state =
+        controller_->get_current_state();
+    if (!current_state.isValid()) {
+      ROS_WARN(
+          "[UavControlDemo] post-takeoff mission skipped: current state invalid");
+      return;
+    }
+
+    const double yaw = yaw_from_quaternion(current_state.orientation);
+    const Eigen::Vector3d forward_dir(std::cos(yaw), std::sin(yaw), 0.0);
+    const Eigen::Vector3d left_dir(-std::sin(yaw), std::cos(yaw), 0.0);
+
+    mission_forward_target_ =
+        current_state.position + post_takeoff_forward_m_ * forward_dir;
+    mission_left_target_ =
+        mission_forward_target_ + post_takeoff_left_m_ * left_dir;
+
+    command_position_target(mission_forward_target_);
+    mission_phase_ = PostTakeoffMissionPhase::FORWARD_ACTIVE;
+    mission_target_hold_start_time_ = ros::Time(0);
+    post_takeoff_mission_started_ = true;
+
+    ROS_INFO(
+        "[UavControlDemo] post-takeoff mission started: forward=%.2fm, left=%.2fm",
+        post_takeoff_forward_m_, post_takeoff_left_m_);
+  }
+
+  void update_post_takeoff_mission() {
+    if (!post_takeoff_mission_enable_ || !post_takeoff_mission_started_) {
+      return;
+    }
+
+    const SunrayState current = fsm_.current_state();
+    if (current == SunrayState::OFF &&
+        mission_phase_ == PostTakeoffMissionPhase::LAND_REQUESTED) {
+      mission_phase_ = PostTakeoffMissionPhase::COMPLETED;
+      post_takeoff_mission_started_ = false;
+      ROS_INFO("[UavControlDemo] post-takeoff mission completed");
+      return;
+    }
+
+    if (current != SunrayState::HOVER) {
+      return;
+    }
+
+    if (mission_phase_ == PostTakeoffMissionPhase::FORWARD_ACTIVE) {
+      if (is_target_reached_with_hold(mission_forward_target_)) {
+        command_position_target(mission_left_target_);
+        mission_phase_ = PostTakeoffMissionPhase::LEFT_ACTIVE;
+        mission_target_hold_start_time_ = ros::Time(0);
+        ROS_INFO("[UavControlDemo] forward waypoint reached, switch to left");
+      }
+      return;
+    }
+
+    if (mission_phase_ == PostTakeoffMissionPhase::LEFT_ACTIVE) {
+      if (is_target_reached_with_hold(mission_left_target_)) {
+        dispatch_event(SunrayEvent::LAND_REQUEST, "LAND_REQUEST",
+                       "post_takeoff_mission");
+        mission_phase_ = PostTakeoffMissionPhase::LAND_REQUESTED;
+        mission_target_hold_start_time_ = ros::Time(0);
+      }
+      return;
+    }
+  }
+
+  bool is_target_reached_with_hold(const Eigen::Vector3d &target) {
+    const uav_control::UAVStateEstimate current_state =
+        controller_->get_current_state();
+    if (!current_state.isValid()) {
+      mission_target_hold_start_time_ = ros::Time(0);
+      return false;
+    }
+
+    const double distance = (current_state.position - target).norm();
+    const ros::Time now = ros::Time::now();
+    if (distance > post_takeoff_pos_tol_m_) {
+      mission_target_hold_start_time_ = ros::Time(0);
+      return false;
+    }
+
+    if (mission_target_hold_start_time_.isZero()) {
+      mission_target_hold_start_time_ = now;
+      return false;
+    }
+
+    return (now - mission_target_hold_start_time_).toSec() >=
+           post_takeoff_hold_s_;
+  }
+
+  void command_position_target(const Eigen::Vector3d &target_position) {
+    uav_control::TrajectoryPoint target;
+    target.set_position(target_position);
+    if (has_last_odom_) {
+      target.set_yaw(yaw_from_quaternion(last_odom_msg_.pose.pose.orientation));
+    }
+    (void)controller_->set_trajectory(target);
+    ROS_INFO("[UavControlDemo] set target position: [%.3f, %.3f, %.3f]",
+             target_position.x(), target_position.y(), target_position.z());
+  }
+
   ros::NodeHandle nh_;
   ros::NodeHandle pnh_;
   Sunray_StateMachine fsm_;
@@ -422,8 +556,20 @@ private:
   bool test_sequence_enable_{false};
   bool test_sequence_repeat_{false};
   bool controller_param_loaded_{false};
+  bool has_last_odom_{false};
+  bool post_takeoff_mission_enable_{true};
+  bool post_takeoff_mission_started_{false};
+  double post_takeoff_forward_m_{1.0};
+  double post_takeoff_left_m_{1.0};
+  double post_takeoff_pos_tol_m_{0.15};
+  double post_takeoff_hold_s_{0.5};
   double param_reload_retry_s_{0.5};
   ros::Time last_param_retry_time_{0};
+  ros::Time mission_target_hold_start_time_{0};
+  nav_msgs::Odometry last_odom_msg_;
+  Eigen::Vector3d mission_forward_target_ = Eigen::Vector3d::Zero();
+  Eigen::Vector3d mission_left_target_ = Eigen::Vector3d::Zero();
+  PostTakeoffMissionPhase mission_phase_{PostTakeoffMissionPhase::IDLE};
 
   bool takeoff_completed_sent_{false};
   bool land_completed_sent_{false};
