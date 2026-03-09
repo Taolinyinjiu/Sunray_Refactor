@@ -24,11 +24,11 @@ double quaternionToYaw(const Eigen::Quaterniond &q) {
 }
 
 std::string frameIdFromState(
-    const uav_common::UAVStateEstimate &state_estimate) {
+    const UAVStateEstimate &state_estimate) {
   switch (state_estimate.coordinate_frame) {
-  case uav_common::UAVStateEstimate::CoordinateFrame::WORLD:
+  case UAVStateEstimate::CoordinateFrame::WORLD:
     return "world";
-  case uav_common::UAVStateEstimate::CoordinateFrame::LOCAL:
+  case UAVStateEstimate::CoordinateFrame::LOCAL:
     return "local";
   default:
     return "world";
@@ -90,12 +90,12 @@ void Sunray_Control_Arbiter::set_fsm_state(SunrayState state) {
 }
 
 void Sunray_Control_Arbiter::set_uav_state(
-    const uav_common::UAVStateEstimate &state) {
+    const UAVStateEstimate &state) {
   current_state_ = state;
 }
 
 void Sunray_Control_Arbiter::submit(
-    ControlSource source, const uav_controller::ControlOutput &output,
+    ControlSource source, const ControllerOutput &output,
     const ros::Time &stamp, uint8_t priority) {
   if (!is_valid_source(source)) {
     ROS_WARN_THROTTLE(1.0, "[SunrayArbiter] submit ignored: invalid source");
@@ -141,7 +141,7 @@ bool Sunray_Control_Arbiter::arbitrate_and_publish() {
     return false;
   }
 
-  uav_controller::ControlOutput selected;
+  ControllerOutput selected;
   ControlSource selected_source = ControlSource::PX4_POSITION;
   if (!select_candidate(&selected, &selected_source)) {
     ROS_WARN_THROTTLE(1.0, "[SunrayArbiter] no fresh candidate available");
@@ -171,7 +171,7 @@ std::size_t Sunray_Control_Arbiter::source_index(ControlSource source) {
 }
 
 bool Sunray_Control_Arbiter::select_candidate(
-    uav_controller::ControlOutput *selected, ControlSource *source) const {
+    ControllerOutput *selected, ControlSource *source) const {
   if (selected == nullptr || source == nullptr) {
     return false;
   }
@@ -233,11 +233,11 @@ bool Sunray_Control_Arbiter::select_candidate(
 }
 
 bool Sunray_Control_Arbiter::validate_output(
-    const uav_controller::ControlOutput &output) const {
-  const bool has_pos = output.is_enabled(uav_controller::ControlOutputMask::POSITION);
-  const bool has_vel = output.is_enabled(uav_controller::ControlOutputMask::VELOCITY);
-  const bool has_att = output.is_enabled(uav_controller::ControlOutputMask::ATTITUDE);
-  const bool has_thr = output.is_enabled(uav_controller::ControlOutputMask::THRUST);
+    const ControllerOutput &output) const {
+  const bool has_pos = output.is_channel_enabled(ControllerOutputMask::POSITION);
+  const bool has_vel = output.is_channel_enabled(ControllerOutputMask::VELOCITY);
+  const bool has_att = output.is_channel_enabled(ControllerOutputMask::ATTITUDE);
+  const bool has_thr = output.is_channel_enabled(ControllerOutputMask::THRUST);
   if (!(has_pos || has_vel || has_att || has_thr)) {
     return false;
   }
@@ -272,12 +272,12 @@ bool Sunray_Control_Arbiter::validate_output(
 }
 
 void Sunray_Control_Arbiter::clamp_output(
-    uav_controller::ControlOutput *output) const {
+    ControllerOutput *output) const {
   if (output == nullptr) {
     return;
   }
 
-  if (output->is_enabled(uav_controller::ControlOutputMask::VELOCITY)) {
+  if (output->is_channel_enabled(ControllerOutputMask::VELOCITY)) {
     const double vx = output->velocity.x();
     const double vy = output->velocity.y();
     const double xy_norm = std::sqrt(vx * vx + vy * vy);
@@ -291,12 +291,12 @@ void Sunray_Control_Arbiter::clamp_output(
         std::min(config_.max_velocity_z_mps, output->velocity.z()));
   }
 
-  if (output->is_enabled(uav_controller::ControlOutputMask::THRUST)) {
+  if (output->is_channel_enabled(ControllerOutputMask::THRUST)) {
     output->thrust =
         std::max(config_.min_thrust, std::min(config_.max_thrust, output->thrust));
   }
 
-  if (output->is_enabled(uav_controller::ControlOutputMask::ATTITUDE)) {
+  if (output->is_channel_enabled(ControllerOutputMask::ATTITUDE)) {
     const double qnorm = output->attitude.norm();
     if (qnorm > 1e-9 && std::isfinite(qnorm)) {
       output->attitude.normalize();
@@ -316,11 +316,11 @@ bool Sunray_Control_Arbiter::is_slot_fresh(const CandidateSlot &slot,
 }
 
 bool Sunray_Control_Arbiter::publish_output(
-    const uav_controller::ControlOutput &output) {
-  const bool has_pos = output.is_enabled(uav_controller::ControlOutputMask::POSITION);
-  const bool has_vel = output.is_enabled(uav_controller::ControlOutputMask::VELOCITY);
-  const bool has_att = output.is_enabled(uav_controller::ControlOutputMask::ATTITUDE);
-  const bool has_thr = output.is_enabled(uav_controller::ControlOutputMask::THRUST);
+    const ControllerOutput &output) {
+  const bool has_pos = output.is_channel_enabled(ControllerOutputMask::POSITION);
+  const bool has_vel = output.is_channel_enabled(ControllerOutputMask::VELOCITY);
+  const bool has_att = output.is_channel_enabled(ControllerOutputMask::ATTITUDE);
+  const bool has_thr = output.is_channel_enabled(ControllerOutputMask::THRUST);
 
   if (config_.prefer_position_target_raw && (has_pos || has_vel)) {
     return publish_position_target_raw(output);
@@ -338,7 +338,7 @@ bool Sunray_Control_Arbiter::publish_output(
 }
 
 bool Sunray_Control_Arbiter::publish_pose_setpoint(
-    const uav_controller::ControlOutput &output) {
+    const ControllerOutput &output) {
   geometry_msgs::PoseStamped msg;
   msg.header.stamp = ros::Time::now();
   msg.header.frame_id = frameIdFromState(current_state_);
@@ -348,7 +348,7 @@ bool Sunray_Control_Arbiter::publish_pose_setpoint(
   msg.pose.position.z = output.position.z();
 
   const Eigen::Quaterniond q =
-      output.is_enabled(uav_controller::ControlOutputMask::ATTITUDE)
+      output.is_channel_enabled(ControllerOutputMask::ATTITUDE)
           ? output.attitude
           : current_state_.orientation;
   msg.pose.orientation.w = q.w();
@@ -361,7 +361,7 @@ bool Sunray_Control_Arbiter::publish_pose_setpoint(
 }
 
 bool Sunray_Control_Arbiter::publish_velocity_setpoint(
-    const uav_controller::ControlOutput &output) {
+    const ControllerOutput &output) {
   geometry_msgs::TwistStamped msg;
   msg.header.stamp = ros::Time::now();
   msg.header.frame_id = frameIdFromState(current_state_);
@@ -376,7 +376,7 @@ bool Sunray_Control_Arbiter::publish_velocity_setpoint(
 }
 
 bool Sunray_Control_Arbiter::publish_attitude_setpoint(
-    const uav_controller::ControlOutput &output) {
+    const ControllerOutput &output) {
   mavros_msgs::AttitudeTarget msg;
   msg.header.stamp = ros::Time::now();
   msg.header.frame_id = frameIdFromState(current_state_);
@@ -387,7 +387,7 @@ bool Sunray_Control_Arbiter::publish_attitude_setpoint(
   msg.body_rate.y = 0.0;
   msg.body_rate.z = 0.0;
 
-  if (output.is_enabled(uav_controller::ControlOutputMask::ATTITUDE)) {
+  if (output.is_channel_enabled(ControllerOutputMask::ATTITUDE)) {
     msg.orientation.w = output.attitude.w();
     msg.orientation.x = output.attitude.x();
     msg.orientation.y = output.attitude.y();
@@ -396,7 +396,7 @@ bool Sunray_Control_Arbiter::publish_attitude_setpoint(
     msg.type_mask |= mavros_msgs::AttitudeTarget::IGNORE_ATTITUDE;
   }
 
-  if (output.is_enabled(uav_controller::ControlOutputMask::THRUST)) {
+  if (output.is_channel_enabled(ControllerOutputMask::THRUST)) {
     msg.thrust = static_cast<float>(output.thrust);
   } else {
     msg.type_mask |= mavros_msgs::AttitudeTarget::IGNORE_THRUST;
@@ -407,20 +407,20 @@ bool Sunray_Control_Arbiter::publish_attitude_setpoint(
 }
 
 bool Sunray_Control_Arbiter::publish_position_target_raw(
-    const uav_controller::ControlOutput &output) {
+    const ControllerOutput &output) {
   mavros_msgs::PositionTarget msg;
   msg.header.stamp = ros::Time::now();
   msg.header.frame_id = frameIdFromState(current_state_);
   msg.coordinate_frame = mavros_msgs::PositionTarget::FRAME_LOCAL_NED;
   msg.type_mask = make_position_target_type_mask(output);
 
-  if (output.is_enabled(uav_controller::ControlOutputMask::POSITION)) {
+  if (output.is_channel_enabled(ControllerOutputMask::POSITION)) {
     msg.position.x = output.position.x();
     msg.position.y = output.position.y();
     msg.position.z = output.position.z();
   }
 
-  if (output.is_enabled(uav_controller::ControlOutputMask::VELOCITY)) {
+  if (output.is_channel_enabled(ControllerOutputMask::VELOCITY)) {
     msg.velocity.x = output.velocity.x();
     msg.velocity.y = output.velocity.y();
     msg.velocity.z = output.velocity.z();
@@ -430,7 +430,7 @@ bool Sunray_Control_Arbiter::publish_position_target_raw(
   msg.acceleration_or_force.y = 0.0;
   msg.acceleration_or_force.z = 0.0;
 
-  if (output.is_enabled(uav_controller::ControlOutputMask::ATTITUDE)) {
+  if (output.is_channel_enabled(ControllerOutputMask::ATTITUDE)) {
     msg.yaw = static_cast<float>(quaternionToYaw(output.attitude));
   } else {
     msg.yaw = 0.0F;
@@ -442,16 +442,16 @@ bool Sunray_Control_Arbiter::publish_position_target_raw(
 }
 
 uint16_t Sunray_Control_Arbiter::make_position_target_type_mask(
-    const uav_controller::ControlOutput &output) const {
+    const ControllerOutput &output) const {
   uint16_t type_mask = 0;
 
-  if (!output.is_enabled(uav_controller::ControlOutputMask::POSITION)) {
+  if (!output.is_channel_enabled(ControllerOutputMask::POSITION)) {
     type_mask |= mavros_msgs::PositionTarget::IGNORE_PX;
     type_mask |= mavros_msgs::PositionTarget::IGNORE_PY;
     type_mask |= mavros_msgs::PositionTarget::IGNORE_PZ;
   }
 
-  if (!output.is_enabled(uav_controller::ControlOutputMask::VELOCITY)) {
+  if (!output.is_channel_enabled(ControllerOutputMask::VELOCITY)) {
     type_mask |= mavros_msgs::PositionTarget::IGNORE_VX;
     type_mask |= mavros_msgs::PositionTarget::IGNORE_VY;
     type_mask |= mavros_msgs::PositionTarget::IGNORE_VZ;
@@ -461,7 +461,7 @@ uint16_t Sunray_Control_Arbiter::make_position_target_type_mask(
   type_mask |= mavros_msgs::PositionTarget::IGNORE_AFY;
   type_mask |= mavros_msgs::PositionTarget::IGNORE_AFZ;
 
-  if (!output.is_enabled(uav_controller::ControlOutputMask::ATTITUDE)) {
+  if (!output.is_channel_enabled(ControllerOutputMask::ATTITUDE)) {
     type_mask |= mavros_msgs::PositionTarget::IGNORE_YAW;
   }
   type_mask |= mavros_msgs::PositionTarget::IGNORE_YAW_RATE;

@@ -1,2 +1,15 @@
 uav_name: uav
 uav_id: 1
+
+# 会被 load_uav_param.py 渲染为 /uav1/* 参数
+uav_namespace:
+  # 三轴到位容差 [x, y, z] (m)
+  error_tolerance: [0.15, 0.15, 0.20]
+  # 三轴最大速度 [vx, vy, vz] (m/s)
+  velocity_max: [1.0, 1.0, 0.6]
+  # 起飞相对高度 (m)
+  takeoff_height: 1.2
+  # 起飞规划最短时间 (s)
+  takeoff_time: 4.0
+  # 降落规划最短时间 (s)
+  land_time: 6.0

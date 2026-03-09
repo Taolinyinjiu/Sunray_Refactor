@@ -80,45 +80,16 @@ class GazeboModelStatesToOdom:
         odom.header = msg.header
         if not self.use_sim_time:
             odom.header.stamp = rospy.Time.now()
-            rospy.logwarn_throttle(
-                1.0,
-                "[gazebo_model_states_to_odom][debug] /use_sim_time is false, overwrite stamp with now=%.3f",
-                odom.header.stamp.to_sec(),
-            )
         elif odom.header.stamp.to_sec() <= 0.0:
             odom.header.stamp = rospy.Time.now()
-            rospy.logwarn_throttle(
-                1.0,
-                "[gazebo_model_states_to_odom][debug] input stamp is zero, replaced with now=%.3f",
-                odom.header.stamp.to_sec(),
-            )
         odom.child_frame_id = msg.child_frame_id if msg.child_frame_id else self.child_frame_id
         if not odom.header.frame_id:
             odom.header.frame_id = self.frame_id
-            rospy.logwarn_throttle(
-                1.0,
-                "[gazebo_model_states_to_odom][debug] input frame_id empty, fallback='%s'",
-                self.frame_id,
-            )
         elif odom.header.frame_id.startswith("/"):
             odom.header.frame_id = odom.header.frame_id[1:]
-            rospy.logwarn_throttle(
-                1.0,
-                "[gazebo_model_states_to_odom][debug] input frame_id has leading '/', normalized='%s'",
-                odom.header.frame_id,
-            )
         odom.pose = msg.pose
         odom.twist = msg.twist
         self.pub.publish(odom)
-        rospy.loginfo_throttle(
-            1.0,
-            "[gazebo_model_states_to_odom][debug] relay odom: in='%s' out='%s' stamp=%.3f frame='%s' child='%s'",
-            self.input_topic,
-            self.output_topic,
-            odom.header.stamp.to_sec(),
-            odom.header.frame_id,
-            odom.child_frame_id,
-        )
 
 
 if __name__ == "__main__":

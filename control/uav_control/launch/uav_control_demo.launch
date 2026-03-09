@@ -9,6 +9,8 @@
   <param name="/uav_name" value="$(arg uav_name)" />
   <param name="/uav_id" value="$(arg uav_id)" />
   <param name="/uav_ns" value="$(arg uav_name)$(arg uav_id)" />
+  <!-- 纯控制链路联调时通常不依赖 MAVROS，关闭 OFFBOARD/ARM 自动接管检查 -->
+  <param name="/fsm/enable_offboard_control" value="false" />
 
   <!-- 1) 加载 uav_name/uav_id/uav_ns 以及命名空间参数 -->
   <include file="$(find uav_control)/launch/load_param.launch">
@@ -35,6 +37,7 @@
         type="uav_control_demo_node"
         name="uav_control_demo_node"
         output="screen">
+    <param name="odom_topic" value="/$(arg uav_name)$(arg uav_id)/sunray/gazebo_pose" />
     <param name="update_hz" value="50.0" />
     <param name="auto_takeoff" value="false" />
     <param name="auto_takeoff_delay_s" value="3.0" />

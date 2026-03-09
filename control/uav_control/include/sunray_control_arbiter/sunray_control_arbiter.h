@@ -15,7 +15,7 @@
 #include <mavros_msgs/PositionTarget.h>
 #include <ros/ros.h>
 
-#include "controller/base_controller/base_controller.h"
+#include "controller/base_controller/base_controller.hpp"
 #include "control_data_types/uav_state_estimate.hpp"
 
 enum class SunrayState;
@@ -65,7 +65,7 @@ public:
    * @brief 候选控制输出缓存槽位。
    */
   struct CandidateSlot {
-    uav_controller::ControlOutput output;  ///< 控制输出
+    ControllerOutput output;  ///< 控制输出
     ros::Time stamp;                       ///< 输出时间戳
     uint8_t priority{0};                   ///< 优先级（值越大优先级越高）
     bool active{false};                    ///< 槽位是否有效
@@ -90,7 +90,7 @@ public:
    * @brief 更新当前无人机状态估计（用于安全门控和消息生成）。
    * @param state 当前状态估计。
    */
-  void set_uav_state(const uav_common::UAVStateEstimate &state);
+  void set_uav_state(const UAVStateEstimate &state);
 
   /**
    * @brief 提交某来源候选输出。
@@ -99,7 +99,7 @@ public:
    * @param stamp 输出时间戳（默认 now）。
    * @param priority 优先级（默认 0）。
    */
-  void submit(ControlSource source, const uav_controller::ControlOutput &output,
+  void submit(ControlSource source, const ControllerOutput &output,
               const ros::Time &stamp = ros::Time::now(), uint8_t priority = 0);
 
   /**
@@ -141,18 +141,18 @@ private:
    * @param source 被选中来源。
    * @return true 表示存在可用输出。
    */
-  bool select_candidate(uav_controller::ControlOutput *selected,
+  bool select_candidate(ControllerOutput *selected,
                         ControlSource *source) const;
 
   /**
    * @brief 校验候选输出是否合法。
    */
-  bool validate_output(const uav_controller::ControlOutput &output) const;
+  bool validate_output(const ControllerOutput &output) const;
 
   /**
    * @brief 对输出执行限幅处理。
    */
-  void clamp_output(uav_controller::ControlOutput *output) const;
+  void clamp_output(ControllerOutput *output) const;
 
   /**
    * @brief 判断槽位是否超时。
@@ -163,33 +163,33 @@ private:
    * @brief 根据 output_mask 发布到对应 MAVROS 话题。
    * @return true 发布成功。
    */
-  bool publish_output(const uav_controller::ControlOutput &output);
+  bool publish_output(const ControllerOutput &output);
 
   /**
    * @brief 发布 PoseStamped 到 `/mavros/setpoint_position/local`。
    */
-  bool publish_pose_setpoint(const uav_controller::ControlOutput &output);
+  bool publish_pose_setpoint(const ControllerOutput &output);
 
   /**
    * @brief 发布 TwistStamped 到 `/mavros/setpoint_velocity/cmd_vel`。
    */
-  bool publish_velocity_setpoint(const uav_controller::ControlOutput &output);
+  bool publish_velocity_setpoint(const ControllerOutput &output);
 
   /**
    * @brief 发布 AttitudeTarget 到 `/mavros/setpoint_raw/attitude`。
    */
-  bool publish_attitude_setpoint(const uav_controller::ControlOutput &output);
+  bool publish_attitude_setpoint(const ControllerOutput &output);
 
   /**
    * @brief 发布 PositionTarget 到 `/mavros/setpoint_raw/local`。
    */
-  bool publish_position_target_raw(const uav_controller::ControlOutput &output);
+  bool publish_position_target_raw(const ControllerOutput &output);
 
   /**
    * @brief 生成 PositionTarget 的 type_mask。
    */
   uint16_t make_position_target_type_mask(
-      const uav_controller::ControlOutput &output) const;
+      const ControllerOutput &output) const;
 
   /**
    * @brief 从参数服务器解析 UAV 命名空间。
@@ -206,7 +206,7 @@ private:
   Config config_{}; ///< 仲裁参数缓存
   bool initialized_{false}; ///< 初始化完成标志
   SunrayState fsm_state_{static_cast<SunrayState>(0)}; ///< 当前状态机状态（0 对应 OFF）
-  uav_common::UAVStateEstimate current_state_{}; ///< 当前状态估计缓存
+  UAVStateEstimate current_state_{}; ///< 当前状态估计缓存
   ros::Time last_publish_time_{}; ///< 最近一次发布时刻
   std::string resolved_uav_ns_; ///< 动态解析出的 UAV 命名空间（例如 uav1）
 

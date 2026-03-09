@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <memory>
 #include <sstream>
@@ -14,45 +15,40 @@
 #include "sunray_statemachine/sunray_statemachine.h"
 
 namespace {
-std::string trim_leading_slash(const std::string &s) {
-  if (!s.empty() && s.front() == '/') {
-    return s.substr(1);
-  }
-  return s;
+
+double yaw_from_quaternion(const geometry_msgs::Quaternion &q) {
+  const double siny_cosp = 2.0 * (q.w * q.z + q.x * q.y);
+  const double cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z);
+  return std::atan2(siny_cosp, cosy_cosp);
 }
 
-std::string resolve_uav_ns(ros::NodeHandle &nh) {
-  std::string key;
-  std::string uav_ns;
-  if (nh.searchParam("uav_ns", key) && nh.getParam(key, uav_ns) &&
-      !uav_ns.empty()) {
-    return trim_leading_slash(uav_ns);
+std::string normalize_token(const std::string &token) {
+  std::string out;
+  out.reserve(token.size());
+  for (char c : token) {
+    if (!std::isspace(static_cast<unsigned char>(c))) {
+      out.push_back(c);
+    }
   }
-
-  std::string uav_name;
-  int uav_id = 0;
-  bool ok_name = false;
-  bool ok_id = false;
-  if (nh.searchParam("uav_name", key)) {
-    ok_name = nh.getParam(key, uav_name) && !uav_name.empty();
-  }
-  if (nh.searchParam("uav_id", key)) {
-    ok_id = nh.getParam(key, uav_id);
-  }
-  if (ok_name && ok_id) {
-    return trim_leading_slash(uav_name + std::to_string(uav_id));
-  }
-  return "";
+  return out;
 }
 
-std::string make_topic(const std::string &uav_ns, const std::string &suffix) {
-  const std::string clean_suffix =
-      (!suffix.empty() && suffix.front() == '/') ? suffix.substr(1) : suffix;
-  if (uav_ns.empty()) {
-    return "/" + clean_suffix;
+nav_msgs::Odometry normalize_odom(const nav_msgs::Odometry &input) {
+  nav_msgs::Odometry out = input;
+  if (out.header.stamp.isZero()) {
+    out.header.stamp = ros::Time::now();
   }
-  return "/" + uav_ns + "/" + clean_suffix;
+  if (out.header.frame_id.empty()) {
+    out.header.frame_id = "world";
+  } else if (out.header.frame_id.front() == '/') {
+    out.header.frame_id = out.header.frame_id.substr(1);
+  }
+  if (out.child_frame_id.empty()) {
+    out.child_frame_id = "body";
+  }
+  return out;
 }
+
 } // namespace
 
 class UavControlDemoNode {
@@ -65,22 +61,20 @@ public:
 
   explicit UavControlDemoNode(ros::NodeHandle &nh)
       : nh_(nh), pnh_("~"), fsm_(nh),
-        controller_(
-            std::make_shared<uav_controller::PX4_Position_Controller>()) {
-    uav_ns_ = resolve_uav_ns(nh_);
-    ROS_INFO("[UavControlDemo] resolved uav_ns='%s'", uav_ns_.c_str());
-
-    std::string odom_topic = make_topic(uav_ns_, "sunray_odom_in");
-    std::string desired_topic = make_topic(uav_ns_, "sunray_desired_odom_in");
-    std::string event_topic = make_topic(uav_ns_, "sunray_fsm_event");
+        controller_(std::make_shared<uav_control::Position_Controller>()) {
+    std::string odom_topic = "/uav1/sunray/gazebo_pose";
+    std::string desired_topic = "/uav1/sunray_desired_odom_in";
+    std::string event_topic = "/uav1/sunray_fsm_event";
     pnh_.param("odom_topic", odom_topic, odom_topic);
     pnh_.param("desired_topic", desired_topic, desired_topic);
     pnh_.param("event_topic", event_topic, event_topic);
+    pnh_.param("simulate_armed", simulate_armed_, simulate_armed_);
+    pnh_.param("auto_seed_desired_from_odom", auto_seed_desired_from_odom_,
+               auto_seed_desired_from_odom_);
+    pnh_.param("param_reload_retry_s", param_reload_retry_s_,
+               param_reload_retry_s_);
 
-    if (!controller_->load_param(nh_, false)) {
-      ROS_WARN("[UavControlDemo] controller load_param failed, will continue "
-               "for debug");
-    }
+    try_load_controller_param(true);
     (void)fsm_.register_controller(controller_);
 
     odom_sub_ =
@@ -108,10 +102,10 @@ public:
 
     std::string test_script;
     pnh_.param("test_sequence_script", test_script, test_script);
-    pnh_.param("test_sequence_repeat", test_sequence_repeat_, false);
-    pnh_.param("test_sequence_enable", test_sequence_enable_, false);
-    pnh_.param("auto_seed_desired_from_odom", auto_seed_desired_from_odom_,
-               true);
+    pnh_.param("test_sequence_repeat", test_sequence_repeat_,
+               test_sequence_repeat_);
+    pnh_.param("test_sequence_enable", test_sequence_enable_,
+               test_sequence_enable_);
     if (test_sequence_enable_) {
       if (parse_test_script(test_script)) {
         test_start_time_ = ros::Time::now();
@@ -130,75 +124,150 @@ public:
 
 private:
   void odom_cb(const nav_msgs::OdometryConstPtr &msg) {
-    controller_->set_currentstate(*msg);
-    fsm_.set_state_available(true);
+    const nav_msgs::Odometry odom_msg = normalize_odom(*msg);
+    const uav_control::UAVStateEstimate odom(odom_msg);
+    (void)controller_->set_current_odom(odom);
 
-    if (auto_seed_desired_from_odom_ && !desired_input_received_) {
-      controller_->set_desiredstate(*msg);
-      fsm_.set_takeoff_callback_ready(true);
-      ROS_INFO_THROTTLE(1.0, "[UavControlDemo][debug] desired auto-seeded from "
-                             "odom for takeoff gate");
+    if (simulate_armed_) {
+      (void)controller_->set_px4_arm_state(true);
     }
 
-    ROS_INFO_THROTTLE(1.0,
-                      "[UavControlDemo][debug] odom in: topic stamp=%.3f "
-                      "frame='%s' child='%s' pos_z=%.3f",
-                      msg->header.stamp.toSec(), msg->header.frame_id.c_str(),
-                      msg->child_frame_id.c_str(), msg->pose.pose.position.z);
+    if (!state_available_) {
+      state_available_ = true;
+      fsm_.set_state_available(true);
+    }
+
+    if (!takeoff_callback_ready_) {
+      takeoff_callback_ready_ = true;
+      fsm_.set_takeoff_callback_ready(true);
+    }
+
+    if (auto_seed_desired_from_odom_ && !desired_input_received_) {
+      uav_control::TrajectoryPoint hold_point;
+      hold_point.set_position(odom.position);
+      hold_point.set_yaw(yaw_from_quaternion(odom_msg.pose.pose.orientation));
+      (void)controller_->set_trajectory(hold_point);
+    }
   }
 
   void desired_cb(const nav_msgs::OdometryConstPtr &msg) {
     desired_input_received_ = true;
-    controller_->set_desiredstate(*msg);
-    fsm_.set_takeoff_callback_ready(true);
-    ROS_INFO_THROTTLE(1.0,
-                      "[UavControlDemo][debug] desired in: stamp=%.3f "
-                      "frame='%s' child='%s' pos=[%.3f %.3f %.3f]",
-                      msg->header.stamp.toSec(), msg->header.frame_id.c_str(),
-                      msg->child_frame_id.c_str(), msg->pose.pose.position.x,
-                      msg->pose.pose.position.y, msg->pose.pose.position.z);
+
+    uav_control::TrajectoryPoint desired_point;
+    desired_point.set_position(Eigen::Vector3d(
+        msg->pose.pose.position.x, msg->pose.pose.position.y,
+        msg->pose.pose.position.z));
+    desired_point.set_velocity(Eigen::Vector3d(msg->twist.twist.linear.x,
+                                               msg->twist.twist.linear.y,
+                                               msg->twist.twist.linear.z));
+    desired_point.set_yaw(yaw_from_quaternion(msg->pose.pose.orientation));
+    (void)controller_->set_trajectory(desired_point);
+
+    if (!takeoff_callback_ready_) {
+      takeoff_callback_ready_ = true;
+      fsm_.set_takeoff_callback_ready(true);
+    }
   }
 
   void event_cb(const std_msgs::StringConstPtr &msg) {
     SunrayEvent event;
     if (parse_event_name(msg->data, &event)) {
       dispatch_event(event, msg->data, "topic");
-    } else {
-      ROS_WARN_THROTTLE(1.0, "[UavControlDemo] unsupported event: %s",
-                        msg->data.c_str());
+      return;
     }
+    ROS_WARN_THROTTLE(1.0, "[UavControlDemo] unsupported event: %s",
+                      msg->data.c_str());
   }
 
-  void update_timer_cb(const ros::TimerEvent &) { fsm_.update(); }
+  void update_timer_cb(const ros::TimerEvent &) {
+    if (!controller_param_loaded_) {
+      const ros::Time now = ros::Time::now();
+      if (last_param_retry_time_.isZero() ||
+          (now - last_param_retry_time_).toSec() >= param_reload_retry_s_) {
+        last_param_retry_time_ = now;
+        (void)try_load_controller_param(false);
+      }
+      return;
+    }
+    fsm_.update();
+    dispatch_completion_events();
+  }
 
   void auto_takeoff_cb(const ros::TimerEvent &) {
-    ROS_INFO("[UavControlDemo] auto takeoff trigger");
     dispatch_event(SunrayEvent::TAKEOFF_REQUEST, "TAKEOFF_REQUEST",
                    "auto_takeoff");
+  }
+
+  void dispatch_completion_events() {
+    const SunrayState current = fsm_.current_state();
+
+    if (current != SunrayState::TAKEOFF) {
+      takeoff_completed_sent_ = false;
+    }
+    if (current != SunrayState::LAND) {
+      land_completed_sent_ = false;
+    }
+    if (current != SunrayState::EMERGENCY_LAND) {
+      emergency_completed_sent_ = false;
+    }
+
+    if (current == SunrayState::TAKEOFF && !takeoff_completed_sent_ &&
+        controller_->is_takeoff_completed()) {
+      dispatch_event(SunrayEvent::TAKEOFF_COMPLETED, "TAKEOFF_COMPLETED",
+                     "controller");
+      takeoff_completed_sent_ = true;
+    }
+
+    if (current == SunrayState::LAND && !land_completed_sent_ &&
+        controller_->is_land_completed()) {
+      dispatch_event(SunrayEvent::LAND_COMPLETED, "LAND_COMPLETED",
+                     "controller");
+      land_completed_sent_ = true;
+    }
+
+    if (current == SunrayState::EMERGENCY_LAND && !emergency_completed_sent_ &&
+        controller_->is_emergency_completed()) {
+      dispatch_event(SunrayEvent::EMERGENCY_COMPLETED, "EMERGENCY_COMPLETED",
+                     "controller");
+      emergency_completed_sent_ = true;
+    }
   }
 
   bool parse_event_name(const std::string &name, SunrayEvent *event) const {
     if (event == nullptr) {
       return false;
     }
+
     if (name == "TAKEOFF_REQUEST") {
       *event = SunrayEvent::TAKEOFF_REQUEST;
+      return true;
+    }
+    if (name == "TAKEOFF_COMPLETED") {
+      *event = SunrayEvent::TAKEOFF_COMPLETED;
       return true;
     }
     if (name == "LAND_REQUEST") {
       *event = SunrayEvent::LAND_REQUEST;
       return true;
     }
+    if (name == "LAND_COMPLETED") {
+      *event = SunrayEvent::LAND_COMPLETED;
+      return true;
+    }
     if (name == "EMERGENCY_REQUEST") {
       *event = SunrayEvent::EMERGENCY_REQUEST;
       return true;
     }
-    if (name == "ENTER_VELOCITY_CONTROL") {
-      *event = SunrayEvent::ENTER_VELOCITY_CONTROL;
+    if (name == "EMERGENCY_COMPLETED") {
+      *event = SunrayEvent::EMERGENCY_COMPLETED;
       return true;
     }
-    if (name == "EXIT_CONTROL_MODE") {
-      *event = SunrayEvent::EXIT_CONTROL_MODE;
+    if (name == "WATCHDOG_ERROR") {
+      *event = SunrayEvent::WATCHDOG_ERROR;
+      return true;
+    }
+    if (name == "ENTER_VELOCITY_CONTROL") {
+      *event = SunrayEvent::ENTER_VELOCITY_CONTROL;
       return true;
     }
     if (name == "ENTER_POSE_CONTROL") {
@@ -213,6 +282,18 @@ private:
       *event = SunrayEvent::ENTER_TRAJECTORY_CONTROL;
       return true;
     }
+    if (name == "EXIT_CONTROL_MODE") {
+      *event = SunrayEvent::EXIT_CONTROL_MODE;
+      return true;
+    }
+    if (name == "TRAJECTORY_COMPLETED") {
+      *event = SunrayEvent::TRAJECTORY_COMPLETED;
+      return true;
+    }
+    if (name == "BREAKING_COMPLETED") {
+      *event = SunrayEvent::BREAKING_COMPLETED;
+      return true;
+    }
     return false;
   }
 
@@ -220,29 +301,27 @@ private:
     timed_events_.clear();
     next_timed_event_index_ = 0U;
     if (script.empty()) {
-      ROS_WARN("[UavControlDemo] test_sequence_script is empty");
       return false;
     }
 
     std::stringstream ss(script);
     std::string token;
     while (std::getline(ss, token, ',')) {
-      token.erase(std::remove_if(token.begin(), token.end(), ::isspace),
-                  token.end());
-      if (token.empty()) {
+      const std::string trimmed = normalize_token(token);
+      if (trimmed.empty()) {
         continue;
       }
-      const std::size_t at_pos = token.find('@');
+
+      const std::size_t at_pos = trimmed.find('@');
       if (at_pos == std::string::npos || at_pos == 0U ||
-          at_pos + 1U >= token.size()) {
-        ROS_WARN(
-            "[UavControlDemo] invalid test token: '%s' (expect EVENT@TIME)",
-            token.c_str());
+          at_pos + 1U >= trimmed.size()) {
+        ROS_WARN("[UavControlDemo] invalid test token: '%s'",
+                 trimmed.c_str());
         return false;
       }
 
-      const std::string event_name = token.substr(0, at_pos);
-      const std::string time_s = token.substr(at_pos + 1U);
+      const std::string event_name = trimmed.substr(0, at_pos);
+      const std::string time_s = trimmed.substr(at_pos + 1U);
       SunrayEvent evt;
       if (!parse_event_name(event_name, &evt)) {
         ROS_WARN("[UavControlDemo] unknown event in test script: '%s'",
@@ -262,7 +341,6 @@ private:
     }
 
     if (timed_events_.empty()) {
-      ROS_WARN("[UavControlDemo] no valid timed events in test script");
       return false;
     }
 
@@ -277,6 +355,7 @@ private:
     if (timed_events_.empty()) {
       return;
     }
+
     const double elapsed_s = (ros::Time::now() - test_start_time_).toSec();
     while (next_timed_event_index_ < timed_events_.size() &&
            elapsed_s >= timed_events_[next_timed_event_index_].trigger_time_s) {
@@ -287,13 +366,12 @@ private:
 
     if (next_timed_event_index_ >= timed_events_.size()) {
       if (test_sequence_repeat_) {
-        ROS_INFO("[UavControlDemo] test sequence cycle completed, restart");
         next_timed_event_index_ = 0U;
         test_start_time_ = ros::Time::now();
-      } else {
-        ROS_INFO("[UavControlDemo] test sequence completed");
-        test_timer_.stop();
+        return;
       }
+      test_timer_.stop();
+      ROS_INFO("[UavControlDemo] test sequence completed");
     }
   }
 
@@ -304,12 +382,30 @@ private:
              source.c_str(), name.c_str(), accepted ? "true" : "false");
   }
 
+  bool try_load_controller_param(bool first_attempt) {
+    if (controller_param_loaded_) {
+      return true;
+    }
+    if (controller_->load_param(nh_)) {
+      controller_param_loaded_ = true;
+      ROS_INFO("[UavControlDemo] controller load_param success");
+      return true;
+    }
+    if (first_attempt) {
+      ROS_WARN(
+          "[UavControlDemo] controller load_param failed, waiting params and retrying...");
+    } else {
+      ROS_WARN_THROTTLE(
+          2.0,
+          "[UavControlDemo] controller load_param still not ready, retrying...");
+    }
+    return false;
+  }
+
   ros::NodeHandle nh_;
   ros::NodeHandle pnh_;
-  std::string uav_ns_;
-
   Sunray_StateMachine fsm_;
-  std::shared_ptr<uav_controller::PX4_Position_Controller> controller_;
+  std::shared_ptr<uav_control::Position_Controller> controller_;
 
   ros::Subscriber odom_sub_;
   ros::Subscriber desired_sub_;
@@ -317,10 +413,22 @@ private:
   ros::Timer update_timer_;
   ros::Timer auto_takeoff_timer_;
   ros::Timer test_timer_;
-  bool test_sequence_enable_{false};
-  bool test_sequence_repeat_{false};
+
+  bool simulate_armed_{true};
+  bool state_available_{false};
+  bool takeoff_callback_ready_{false};
   bool auto_seed_desired_from_odom_{true};
   bool desired_input_received_{false};
+  bool test_sequence_enable_{false};
+  bool test_sequence_repeat_{false};
+  bool controller_param_loaded_{false};
+  double param_reload_retry_s_{0.5};
+  ros::Time last_param_retry_time_{0};
+
+  bool takeoff_completed_sent_{false};
+  bool land_completed_sent_{false};
+  bool emergency_completed_sent_{false};
+
   ros::Time test_start_time_;
   std::vector<TimedEvent> timed_events_;
   std::size_t next_timed_event_index_{0U};
@@ -331,20 +439,5 @@ int main(int argc, char **argv) {
   ros::NodeHandle nh;
   UavControlDemoNode node(nh);
   ros::spin();
-
-  std::vector<Eigen::Vector3d> point_list;
-  Eigen::Vector3d Point_1(-1, -1, 1);
-  Eigen::Vector3d Point_2(1, -1, 1);
-  Eigen::Vector3d Point_3(1, 1, 1);
-  Eigen::Vector3d Point_4(-1, 1, 1);
-  Eigen::Vector3d Point_5(-1, -11, 1);
-  point_list.push_back(Point_1);
-  point_list.push_back(Point_2);
-  point_list.push_back(Point_3);
-  point_list.push_back(Point_4);
-  point_list.push_back(Point_5);
-	
-	
-	
-	return 0;
+  return 0;
 }

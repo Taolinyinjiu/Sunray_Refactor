@@ -21,7 +21,7 @@ Sunray_StateMachine::Sunray_StateMachine(ros::NodeHandle& nh)
     }
 }
 
-bool Sunray_StateMachine::register_controller(const std::shared_ptr<uav_controller::Base_Controller>& controller) {
+bool Sunray_StateMachine::register_controller(const std::shared_ptr<uav_control::Base_Controller>& controller) {
     if (!controller) {
         ROS_WARN("[SunrayFSM] register_controller failed: null controller");
         return false;
@@ -131,7 +131,7 @@ void Sunray_StateMachine::update() {
         }
     }
 
-    const std::shared_ptr<uav_controller::Base_Controller> controller = get_controller();
+    const std::shared_ptr<uav_control::Base_Controller> controller = get_controller();
     if (!controller) {
         ROS_WARN_THROTTLE(1.0, "[SunrayFSM] no controller registered");
         return;
@@ -155,7 +155,7 @@ void Sunray_StateMachine::update() {
             break;
     }
 
-    const uav_controller::ControlOutput control_output = controller->update();
+    const uav_control::ControllerOutput control_output = controller->update();
 
     arbiter_.set_fsm_state(current_state_);
     arbiter_.set_uav_state(controller->get_current_state());
@@ -398,6 +398,6 @@ bool Sunray_StateMachine::transition_to(SunrayState next_state) {
     return true;
 }
 
-std::shared_ptr<uav_controller::Base_Controller> Sunray_StateMachine::get_controller() const {
+std::shared_ptr<uav_control::Base_Controller> Sunray_StateMachine::get_controller() const {
     return controller_;
 }

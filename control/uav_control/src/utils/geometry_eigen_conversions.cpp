@@ -1,6 +1,6 @@
 #include "utils/geometry_eigen_conversions.hpp"
 
-namespace uav_common {
+namespace uav_control {
 
 Eigen::Quaterniond geometryToEigen(const geometry_msgs::Quaternion &vec_ros) {
   return Eigen::Quaterniond(vec_ros.w, vec_ros.x, vec_ros.y, vec_ros.z);
@@ -54,5 +54,4 @@ Eigen::Affine3d geometryToEigen(const geometry_msgs::PoseStamped &pose_ros) {
   return geometryToEigen(pose_ros.pose);
 }
 
-} // namespace uav_common
-
+} // namespace uav_control

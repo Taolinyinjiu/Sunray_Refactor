@@ -99,4 +99,4 @@ Eigen::Affine3d geometryToEigen(const geometry_msgs::Pose &pose_ros);
  */
 Eigen::Affine3d geometryToEigen(const geometry_msgs::PoseStamped &pose_ros);
 ///@}
-} // namespace uav_common
+} // namespace uav_control

@@ -60,6 +60,7 @@ bool Quintic_Curve::set_start_time(ros::Time start_time) {
     return false;
   } else {
     start_time_ = start_time.toSec();
+		log_start_time_ = start_time;
   }
   return true;
 }
@@ -67,6 +68,7 @@ bool Quintic_Curve::set_start_time(ros::Time start_time) {
 void Quintic_Curve::clear_time() {
   keep_time_ = 0.0;
   start_time_ = 0.0;
+	log_start_time_ = ros::Time(0);
 }
 
 void Quintic_Curve::clear_position() {

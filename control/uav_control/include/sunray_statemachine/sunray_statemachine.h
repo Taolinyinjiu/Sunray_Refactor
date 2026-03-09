@@ -8,7 +8,7 @@
 #include <mavros_msgs/State.h>
 #include <ros/ros.h>
 
-#include "controller/base_controller/base_controller.h"
+#include "controller/base_controller/base_controller.hpp"
 #include "sunray_control_arbiter/sunray_control_arbiter.h"
 
 /**
@@ -95,7 +95,7 @@ public:
    * @note 状态机所有状态共享同一个控制器对象，以避免多控制器状态不一致问题。
    */
   bool register_controller(
-      const std::shared_ptr<uav_controller::Base_Controller> &controller);
+      const std::shared_ptr<uav_control::Base_Controller> &controller);
 
   /**
    * @brief 状态机事件入口。
@@ -223,7 +223,7 @@ private:
    * @brief 获取已注册的控制器实例。
    * @return 控制器智能指针；未注册时返回 nullptr。
    */
-  std::shared_ptr<uav_controller::Base_Controller> get_controller() const;
+  std::shared_ptr<uav_control::Base_Controller> get_controller() const;
 
   ros::NodeHandle nh_;          ///< ROS 节点句柄。
   SunrayState current_state_;   ///< 当前状态。
@@ -233,7 +233,7 @@ private:
       OdometrySource::UNKNOWN}; ///< 当前里程计来源。
   std::shared_ptr<::PX4_ParamManager>
       px4_param_manager_; ///< PX4 参数管理器句柄。
-  std::shared_ptr<uav_controller::Base_Controller>
+  std::shared_ptr<uav_control::Base_Controller>
       controller_; ///< 全局唯一控制器实例。
   uav_control::Sunray_Control_Arbiter arbiter_; ///< 控制输出仲裁与发布层。
 

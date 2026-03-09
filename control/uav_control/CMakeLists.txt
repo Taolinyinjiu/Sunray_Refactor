@@ -112,6 +112,11 @@ find_package(catkin REQUIRED COMPONENTS
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES UAV_Controller
+  LIBRARIES
+    control_data_types_lib
+    uav_controller_lib
+    sunray_control_arbiter_lib
+    sunray_fsm_lib
   CATKIN_DEPENDS roscpp std_msgs nav_msgs geometry_msgs sensor_msgs mavros_msgs gazebo_msgs px4_bridge
 #  DEPENDS system_lib
 )
@@ -144,49 +149,64 @@ target_link_libraries(px4_manager_lib INTERFACE
 	${EIGEN3_LIBRARIES}
 )
 
-# add_library(sunray_control_arbiter_lib
-#   src/sunray_control_arbiter/sunray_control_arbiter.cpp
-# )
-# target_link_libraries(sunray_control_arbiter_lib
-#   ${catkin_LIBRARIES}
-#   ${EIGEN3_LIBRARIES}
-# )
+add_library(control_data_types_lib
+  src/control_data_types/control_data_types.cpp
+)
+target_link_libraries(control_data_types_lib
+  ${catkin_LIBRARIES}
+  ${EIGEN3_LIBRARIES}
+)
 
-# add_library(uav_controller_lib
-#   src/utils/geometry_eigen_conversions.cpp
-#   src/base_controller/base_controller.cpp
-#   src/px4_position_controller/px4_position_controller.cpp
-# )
-# target_link_libraries(uav_controller_lib
-#   ${catkin_LIBRARIES}
-#   ${EIGEN3_LIBRARIES}
-# )
+add_library(sunray_control_arbiter_lib
+  src/sunray_control_arbiter/sunray_control_arbiter.cpp
+)
+target_link_libraries(sunray_control_arbiter_lib
+  control_data_types_lib
+  ${catkin_LIBRARIES}
+  ${EIGEN3_LIBRARIES}
+)
 
-# add_library(sunray_fsm_lib
-#   src/sunray_statemachine/sunray_statemachine.cpp
-# )
-# target_link_libraries(sunray_fsm_lib
-#   uav_controller_lib
-#   sunray_control_arbiter_lib
-#   ${catkin_LIBRARIES}
-#   ${EIGEN3_LIBRARIES}
-# )
+add_library(uav_controller_lib
+  src/utils/geometry_eigen_conversions.cpp
+  src/utils/quintic_curve.cpp
+  src/controller/base_controller/base_controller.cpp
+  src/controller/px4_position_controller/px4_position_controller.cpp
+)
+target_link_libraries(uav_controller_lib
+  control_data_types_lib
+  ${catkin_LIBRARIES}
+  ${EIGEN3_LIBRARIES}
+)
 
-# add_executable(uav_control_demo_node
-#   src/demo/uav_control_demo_node.cpp
-# )
-# target_link_libraries(uav_control_demo_node
-#   uav_controller_lib
-#   sunray_fsm_lib
-#   ${catkin_LIBRARIES}
-#   ${EIGEN3_LIBRARIES}
-# )
+add_library(sunray_fsm_lib
+  src/sunray_statemachine/sunray_statemachine.cpp
+)
+target_link_libraries(sunray_fsm_lib
+  uav_controller_lib
+  sunray_control_arbiter_lib
+  control_data_types_lib
+  ${catkin_LIBRARIES}
+  ${EIGEN3_LIBRARIES}
+)
+
+add_executable(uav_control_demo_node
+  src/demo/uav_control_demo_node.cpp
+)
+target_link_libraries(uav_control_demo_node
+  uav_controller_lib
+  sunray_fsm_lib
+  sunray_control_arbiter_lib
+  control_data_types_lib
+  ${catkin_LIBRARIES}
+  ${EIGEN3_LIBRARIES}
+)
 
 add_executable(quintic_curve_test_node
   src/demo/quintic_curve_test_node.cpp
   src/utils/quintic_curve.cpp
 )
 target_link_libraries(quintic_curve_test_node
+  control_data_types_lib
   ${catkin_LIBRARIES}
   ${EIGEN3_LIBRARIES}
 )
@@ -277,6 +297,7 @@ if(CATKIN_ENABLE_TESTING)
   )
   if(TARGET uav_control_px4_param_types_ut)
     target_link_libraries(uav_control_px4_param_types_ut
+      control_data_types_lib
       ${catkin_LIBRARIES}
       ${EIGEN3_LIBRARIES}
     )
