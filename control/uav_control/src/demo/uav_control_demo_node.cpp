@@ -168,11 +168,16 @@ private:
       fsm_.set_takeoff_callback_ready(true);
     }
 
-    if (auto_seed_desired_from_odom_ && !desired_input_received_) {
+    // 仅在首次里程计时进行一次 seed，避免后续周期性覆盖任务目标。
+    if (auto_seed_desired_from_odom_ && !desired_input_received_ &&
+        !auto_seed_initialized_) {
       uav_control::TrajectoryPoint hold_point;
       hold_point.set_position(odom.position);
       hold_point.set_yaw(yaw_from_quaternion(odom_msg.pose.pose.orientation));
       (void)controller_->set_trajectory(hold_point);
+      auto_seed_initialized_ = true;
+      ROS_INFO_ONCE(
+          "[UavControlDemo] seeded desired trajectory from first odom sample");
     }
   }
 
@@ -528,6 +533,8 @@ private:
   void command_position_target(const Eigen::Vector3d &target_position) {
     uav_control::TrajectoryPoint target;
     target.set_position(target_position);
+    // 标记已存在显式目标，防止 fallback seed 覆盖任务位置指令。
+    desired_input_received_ = true;
     if (has_last_odom_) {
       target.set_yaw(yaw_from_quaternion(last_odom_msg_.pose.pose.orientation));
     }
@@ -552,6 +559,7 @@ private:
   bool state_available_{false};
   bool takeoff_callback_ready_{false};
   bool auto_seed_desired_from_odom_{true};
+  bool auto_seed_initialized_{false};
   bool desired_input_received_{false};
   bool test_sequence_enable_{false};
   bool test_sequence_repeat_{false};

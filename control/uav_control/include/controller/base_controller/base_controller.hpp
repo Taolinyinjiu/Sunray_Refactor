@@ -174,6 +174,12 @@ protected:
 
   /** @brief 起飞参考位置（m）。 */
   Eigen::Vector3d takeoff_position_;
+
+  /** @brief 地面参考高度（m），通常由首次有效里程计/起飞时刻锁存。 */
+  double ground_reference_z_ = 0.0;
+
+  /** @brief 地面参考高度是否已初始化。 */
+  bool ground_reference_initialized_ = false;
 	
   /** @brief 起飞相对高度（m）。 */
   double takeoff_height_ = 1.0;
@@ -207,6 +213,9 @@ protected:
 
   /** @brief 降落稳定区间最近保持时间戳。 */
   ros::Time land_holdkeep_time_ = ros::Time(0);
+
+  /** @brief 触地稳定判定起始时间戳。 */
+  ros::Time land_touchdown_stable_start_time_ = ros::Time(0);
   /** ---------------运动参数----------------- */
   /** @brief 当前控制参考轨迹点。 */
   TrajectoryPoint trajectory_;

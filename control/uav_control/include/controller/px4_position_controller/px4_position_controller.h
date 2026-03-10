@@ -31,6 +31,16 @@ private:
 
   // 设计一个五次项曲线生成器，用来生成轨迹
   Quintic_Curve quintic_curve_generation;
+
+  // 降落末段接管上下文（曲线 -> 恒速下沉 -> 触地判定）
+  bool land_velocity_takeover_active_{false};
+  bool land_takeover_speed_peak_reached_{false};
+  double last_land_altitude_m_{0.0};
+  ros::Time last_land_altitude_time_{0};
+  ros::Time land_low_velocity_start_time_{0};
+  ros::Time land_no_descent_start_time_{0};
+  double last_land_vz_mps_{0.0};
+  bool last_land_vz_valid_{false};
 		
 };
 

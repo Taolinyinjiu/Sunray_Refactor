@@ -1,0 +1,85 @@
+#include "utils/curve/quintic_curve.hpp"
+
+#include <algorithm>
+#include <cmath>
+
+namespace uav_control {
+namespace curve {
+namespace {
+
+bool is_finite_scalar(double value) { return std::isfinite(value); }
+
+bool is_finite_vector(const Eigen::Vector3d &value) { return value.allFinite(); }
+
+} // namespace
+
+QuinticCurveState evaluate_quintic_curve(
+    const Eigen::Vector3d &start_position,
+    const Eigen::Vector3d &start_velocity,
+    const Eigen::Vector3d &end_position, const Eigen::Vector3d &end_velocity,
+    double start_time_s, double duration_s, double current_time_s) {
+  QuinticCurveState output;
+  if (!is_finite_scalar(start_time_s) || !is_finite_scalar(duration_s) ||
+      !is_finite_scalar(current_time_s) || duration_s <= 0.0 ||
+      !is_finite_vector(start_position) || !is_finite_vector(start_velocity) ||
+      !is_finite_vector(end_position) || !is_finite_vector(end_velocity)) {
+    return output;
+  }
+
+  const double elapsed_s = current_time_s - start_time_s;
+  const double clamped_elapsed_s =
+      std::max(0.0, std::min(duration_s, elapsed_s));
+  const double t = clamped_elapsed_s;
+  const double t2 = t * t;
+  const double t3 = t2 * t;
+  const double t4 = t3 * t;
+  const double t5 = t4 * t;
+
+  const double T = duration_s;
+  const double T2 = T * T;
+  const double T3 = T2 * T;
+  const double T4 = T3 * T;
+  const double T5 = T4 * T;
+
+  const Eigen::Vector3d start_acc = Eigen::Vector3d::Zero();
+  const Eigen::Vector3d end_acc = Eigen::Vector3d::Zero();
+
+  const Eigen::Vector3d c0 = start_position;
+  const Eigen::Vector3d c1 = start_velocity;
+  const Eigen::Vector3d c2 = 0.5 * start_acc;
+  const Eigen::Vector3d delta_p = end_position - start_position;
+
+  const Eigen::Vector3d c3 =
+      (20.0 * delta_p - (8.0 * end_velocity + 12.0 * start_velocity) * T -
+       (3.0 * start_acc - end_acc) * T2) /
+      (2.0 * T3);
+  const Eigen::Vector3d c4 =
+      (30.0 * (-delta_p) + (14.0 * end_velocity + 16.0 * start_velocity) * T +
+       (3.0 * start_acc - 2.0 * end_acc) * T2) /
+      (2.0 * T4);
+  const Eigen::Vector3d c5 =
+      (12.0 * delta_p - (6.0 * end_velocity + 6.0 * start_velocity) * T -
+       (start_acc - end_acc) * T2) /
+      (2.0 * T5);
+
+  output.position = c0 + c1 * t + c2 * t2 + c3 * t3 + c4 * t4 + c5 * t5;
+  output.velocity =
+      c1 + 2.0 * c2 * t + 3.0 * c3 * t2 + 4.0 * c4 * t3 + 5.0 * c5 * t4;
+  output.acceleration =
+      2.0 * c2 + 6.0 * c3 * t + 12.0 * c4 * t2 + 20.0 * c5 * t3;
+  output.jerk = 6.0 * c3 + 24.0 * c4 * t + 60.0 * c5 * t2;
+  output.snap = 24.0 * c4 + 120.0 * c5 * t;
+  output.elapsed_s = clamped_elapsed_s;
+  output.normalized_time = clamped_elapsed_s / duration_s;
+  output.clamped = (std::abs(clamped_elapsed_s - elapsed_s) > 1e-9);
+  output.valid = is_finite_vector(output.position) &&
+                 is_finite_vector(output.velocity) &&
+                 is_finite_vector(output.acceleration) &&
+                 is_finite_vector(output.jerk) &&
+                 is_finite_vector(output.snap);
+  return output;
+}
+
+} // namespace curve
+} // namespace uav_control
+

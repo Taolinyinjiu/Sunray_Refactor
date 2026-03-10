@@ -1,5 +1,7 @@
 #include "controller/base_controller/base_controller.hpp"
 
+#include <algorithm>
+
 namespace uav_control {
 
 bool Base_Controller::set_takeoff_mode(void) {
@@ -9,6 +11,10 @@ bool Base_Controller::set_takeoff_mode(void) {
   if (!uav_current_state_.isValid()) {
     return false;
   }
+
+  // 进入起飞流程时刷新地面参考高度，供后续降落目标使用。
+  ground_reference_z_ = uav_current_state_.position.z();
+  ground_reference_initialized_ = true;
 
   // 以当前位置信息作为起飞参考，并叠加相对起飞高度。
   takeoff_position_ = uav_current_state_.position;
@@ -42,12 +48,19 @@ bool Base_Controller::set_land_mode() {
     return false;
   }
 
-  // 以当前位置作为降落参考，目标地面高度固定为 z=0。
+  // 以当前位置作为降落参考；降落高度优先使用锁存的地面参考高度。
   land_position_ = uav_current_state_.position;
-  land_position_.z() = 0.0;
+  if (ground_reference_initialized_) {
+    // 防止进入 LAND 时出现“先上升再下降”，目标 z 不应高于当前高度。
+    land_position_.z() =
+        std::min(uav_current_state_.position.z(), ground_reference_z_);
+  } else {
+    land_position_.z() = uav_current_state_.position.z();
+  }
   land_initialized_ = false;
   land_holdstart_time_ = ros::Time(0);
   land_holdkeep_time_ = ros::Time(0);
+  land_touchdown_stable_start_time_ = ros::Time(0);
   controller_state_ = ControllerState::LAND;
   return true;
 }
@@ -69,6 +82,10 @@ bool Base_Controller::set_px4_arm_state(bool arm_state) {
 bool Base_Controller::set_current_odom(
     const UAVStateEstimate &current_state) {
   uav_current_state_ = current_state;
+  if (!ground_reference_initialized_ && uav_current_state_.isValid()) {
+    ground_reference_z_ = uav_current_state_.position.z();
+    ground_reference_initialized_ = true;
+  }
   return true;
 }
 

@@ -169,6 +169,8 @@ target_link_libraries(sunray_control_arbiter_lib
 add_library(uav_controller_lib
   src/utils/geometry_eigen_conversions.cpp
   src/utils/quintic_curve.cpp
+  src/utils/curve/cubic_curve.cpp
+  src/utils/curve/quintic_curve.cpp
   src/controller/base_controller/base_controller.cpp
   src/controller/px4_position_controller/px4_position_controller.cpp
 )
