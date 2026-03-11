@@ -11,6 +11,8 @@ bool is_finite_scalar(double value) { return std::isfinite(value); }
 
 bool is_finite_vector(const Eigen::Vector3d &value) { return value.allFinite(); }
 
+constexpr double kZeroVelAccQuinticPeakVelocityScale = 15.0 / 8.0;
+
 } // namespace
 
 QuinticCurveState evaluate_quintic_curve(
@@ -80,6 +82,29 @@ QuinticCurveState evaluate_quintic_curve(
   return output;
 }
 
+QuinticCurveMinDuration solve_quintic_min_duration_from_max_speed(
+    const Eigen::Vector3d &start_position, const Eigen::Vector3d &end_position,
+    double max_speed_mps) {
+  QuinticCurveMinDuration output;
+  if (!is_finite_vector(start_position) || !is_finite_vector(end_position) ||
+      !is_finite_scalar(max_speed_mps) || max_speed_mps <= 0.0) {
+    return output;
+  }
+
+  const double displacement = (end_position - start_position).norm();
+  if (!is_finite_scalar(displacement)) {
+    return output;
+  }
+
+  output.min_duration_s =
+      kZeroVelAccQuinticPeakVelocityScale * displacement / max_speed_mps;
+  output.valid = is_finite_scalar(output.min_duration_s) &&
+                 output.min_duration_s >= 0.0;
+  if (!output.valid) {
+    output.min_duration_s = 0.0;
+  }
+  return output;
+}
+
 } // namespace curve
 } // namespace uav_control
-

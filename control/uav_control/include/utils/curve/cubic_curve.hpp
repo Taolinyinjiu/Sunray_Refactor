@@ -42,6 +42,20 @@ struct CubicCurveState {
 };
 
 /**
+ * @brief 基于零边界速度/加速度约束的最小运动时间估计结果。
+ *
+ * @details
+ * 按 `v(0)=v(T)=0`、`a(0)=a(T)=0` 的边界约束估计最短时间，
+ * 对应速度峰值关系 `v_peak = (15/8) * |Δp| / T`。
+ */
+struct CubicCurveMinDuration {
+  /** @brief 结果是否有效（输入合法且输出为有限值）。 */
+  bool valid{false};
+  /** @brief 在给定最大速度约束下的最小运动时间（秒）。 */
+  double min_duration_s{0.0};
+};
+
+/**
  * @brief 评估三次曲线在当前时刻的状态。
  *
  * @details
@@ -71,6 +85,22 @@ CubicCurveState evaluate_cubic_curve(
     const Eigen::Vector3d &end_position,
     const Eigen::Vector3d &end_velocity, double start_time_s,
     double duration_s, double current_time_s);
+
+/**
+ * @brief 在零边界速度/加速度条件下，根据最大速度反推最小运动时间。
+ *
+ * @details
+ * 本接口用于统一提供“零速度、零加速度端点”的最短时间估计能力，
+ * 计算式为 `T_min = (15/8) * |end_position - start_position| / max_speed_mps`。
+ *
+ * @param start_position 起点位置（m）。
+ * @param end_position 终点位置（m）。
+ * @param max_speed_mps 速度上限（m/s，必须大于 0）。
+ * @return CubicCurveMinDuration 最短时间估计结果。
+ */
+CubicCurveMinDuration solve_cubic_min_duration_from_max_speed(
+    const Eigen::Vector3d &start_position, const Eigen::Vector3d &end_position,
+    double max_speed_mps);
 
 } // namespace curve
 } // namespace uav_control

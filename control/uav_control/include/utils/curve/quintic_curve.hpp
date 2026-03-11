@@ -44,6 +44,20 @@ struct QuinticCurveState {
 };
 
 /**
+ * @brief 基于零边界速度/加速度约束的最小运动时间估计结果。
+ *
+ * @details
+ * 在 `v(0)=v(T)=0`、`a(0)=a(T)=0` 的五次曲线约束下，
+ * 速度峰值满足 `v_peak = (15/8) * |Δp| / T`。
+ */
+struct QuinticCurveMinDuration {
+  /** @brief 结果是否有效（输入合法且输出为有限值）。 */
+  bool valid{false};
+  /** @brief 在给定最大速度约束下的最小运动时间（秒）。 */
+  double min_duration_s{0.0};
+};
+
+/**
  * @brief 评估五次曲线在当前时刻的状态。
  *
  * @details
@@ -75,6 +89,23 @@ QuinticCurveState evaluate_quintic_curve(
     const Eigen::Vector3d &end_position,
     const Eigen::Vector3d &end_velocity, double start_time_s,
     double duration_s, double current_time_s);
+
+/**
+ * @brief 在零边界速度/加速度条件下，根据最大速度反推最小运动时间。
+ *
+ * @details
+ * 本函数针对 `v(0)=v(T)=0`、`a(0)=a(T)=0` 的五次曲线，
+ * 使用 `T_min = (15/8) * |end_position - start_position| / max_speed_mps`
+ * 计算满足速度约束的最短持续时间。
+ *
+ * @param start_position 起点位置（m）。
+ * @param end_position 终点位置（m）。
+ * @param max_speed_mps 速度上限（m/s，必须大于 0）。
+ * @return QuinticCurveMinDuration 最短时间估计结果。
+ */
+QuinticCurveMinDuration solve_quintic_min_duration_from_max_speed(
+    const Eigen::Vector3d &start_position, const Eigen::Vector3d &end_position,
+    double max_speed_mps);
 
 } // namespace curve
 } // namespace uav_control

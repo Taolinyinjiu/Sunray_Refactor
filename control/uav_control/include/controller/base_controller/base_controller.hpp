@@ -26,7 +26,6 @@
 #include <sensor_msgs/Imu.h>
 
 #include <Eigen/Dense>
-#include <vector>
 
 #include "control_data_types/control_data_types.h"
 #include "control_data_types/uav_state_estimate.hpp"
@@ -39,28 +38,14 @@ public:
   virtual ~Base_Controller() {} // 必须为虚析构
 
   /**
-   * @brief 从 ROS 参数服务器加载控制器参数。
-   * @param nh ROS 节点句柄。
-   * @return true 参数加载成功；false 参数加载失败。
-   * @note 失败时，上层状态机应拒绝进入飞行相关模式。
-   */
-  virtual bool load_param(ros::NodeHandle &nh) = 0;
-
-  /**
-   * @brief 切换到起飞模式（默认接口）。
-   * @return true 切换成功；false 切换失败（例如状态不允许）。
-   * @details
-   * 默认语义为“在当前水平位置附近执行起飞”，具体高度目标由控制器内部参数决定。
-   */
-  virtual bool set_takeoff_mode(void);
-
-  /**
    * @brief 以相对高度方式切换到起飞模式。
-   * @param relative_takeoff_height_m 相对当前高度的起飞增量，单位 m。
+   * @param relative_takeoff_height 相对当前高度的起飞增量，单位 m。
+   * @param max_takeoff_velocity 起飞阶段最大速度，单位 m/s
    * @return true 切换成功；false 参数非法或状态不允许。
    * @note 该参数语义为“相对高度”，不是绝对世界高度。
    */
-  virtual bool set_takeoff_mode(double relative_takeoff_height_m);
+  virtual bool set_takeoff_mode(double relative_takeoff_height,
+                                double max_takeoff_velocity);
 
   /**
    * @brief 设置飞控解锁状态。
@@ -138,11 +123,11 @@ public:
   virtual bool is_emergency_completed() const;
 
   /**
-   * @brief 控制器通用健康状态检查。
-   * @return true 控制器健康；false 控制器不健康。
+   * @brief 控制器通用就绪状态检查。
+   * @return true 控制器已就绪；false 控制器还未就绪。
    * @details 建议覆盖检查项包括参数合法性、输入时效性、状态有效性等。
    */
-  virtual bool is_healthy() const;
+  virtual bool is_ready() const;
 
   /**
    * @brief 控制律核心更新函数。
@@ -153,11 +138,9 @@ public:
 
 protected:
   /** ---------------基本参数----------------- */
-  /** @brief 无人机命名空间（如 `uav1`）。 */
-  std::string uav_ns_ = "null";
 
-  /** @brief 参数是否已完成加载。 */
-  bool has_loadparam_ = false;
+  /** @brief 控制器就绪状态。 */
+  bool controller_ready_ = false;
 
   /** @brief PX4 解锁状态。 */
   bool px4_arm_state_ = false;
@@ -165,29 +148,32 @@ protected:
   /** @brief 误差容限数组，通常为 `{x_tol, y_tol, z_tol}`。 */
   Eigen::Vector3d error_tolerance_ = Eigen::Vector3d::Zero();
 
-	/** @brief 三轴最大速度参数，通常为`x_vel,y_vel,z_vel` */
+  /** @brief 三轴最大速度参数，通常为`x_vel,y_vel,z_vel` */
   Eigen::Vector3d velocity_max_ = Eigen::Vector3d::Zero();
 
-  /** ---------------起飞参数----------------- */
-  /** @brief 起飞状态上下文 */
-  bool takeoff_initialized_ = false;
-
-  /** @brief 起飞参考位置（m）。 */
-  Eigen::Vector3d takeoff_position_;
+  /** ---------------地面参数----------------- */
 
   /** @brief 地面参考高度（m），通常由首次有效里程计/起飞时刻锁存。 */
   double ground_reference_z_ = 0.0;
 
   /** @brief 地面参考高度是否已初始化。 */
   bool ground_reference_initialized_ = false;
-	
-  /** @brief 起飞相对高度（m）。 */
-  double takeoff_height_ = 1.0;
-  
-	/** @brief 起飞所需要的时间 */
-	double takeoff_time_ = 0.0;	// 根据实际情况动态做差值
 
-	/** @brief 起飞完成判定所需保持时间（s）。 */
+  /** ---------------起飞参数----------------- */
+  /** @brief 起飞状态上下文 */
+  bool takeoff_initialized_ = false;
+
+  /** @brief 起飞期望位置（m）。 */
+  Eigen::Vector3d takeoff_expect_position_;
+
+  /** @brief 起飞过程中最大速度 */
+  double takeoff_max_velocity_ = 0.0;
+
+  /** @brief 计算出来的理论运动时间，小于 @param takeoff_singlecurve_limit_time
+   * 则切换为多段曲线拼接式的起飞模式 */
+  double takeoff_singlecurve_limit_time_ = 0.0;
+
+  /** @brief 起飞完成判定所需保持时间（s）。 */
   double takeoff_success_time_ = 3.0;
 
   /** @brief 起飞稳定区间开始时间戳。 */
@@ -195,15 +181,23 @@ protected:
 
   /** @brief 起飞稳定区间最近保持时间戳。 */
   ros::Time takeoff_holdkeep_time_ = ros::Time(0);
+
   /** ---------------降落参数----------------- */
+  /** @brief 降落类型 0:基于五次项曲线实现的降落 1:px4.auto_land */
+  uint8_t land_type_ = 0;
+
   /** @brief 降落状态上下文 */
   bool land_initialized_ = false;
 
-  /** @brief 降落参考位置（m）。 */
-  Eigen::Vector3d land_position_;
+  /** @brief 降落期望参考位置（m）。 */
+  Eigen::Vector3d land_expect_position_;
 
-	/** @brief 降落所需要的时间 */
-	double land_time_ = 0.0;	// 根据实际情况动态做差值
+  /** @brief 降落过程中最大速度 */
+  double land_max_velocity_ = 0.0;
+
+  /** @brief 计算出来的理论运动时间，小于 @param land_singlecurve_limit_time
+   * 则切换为多段曲线拼接式的降落模式 */
+  double land_singlecurve_limit_time_ = 0.0;
 
   /** @brief 降落完成判定所需保持时间（s）。 */
   double land_success_time_ = 3.0;
@@ -214,8 +208,6 @@ protected:
   /** @brief 降落稳定区间最近保持时间戳。 */
   ros::Time land_holdkeep_time_ = ros::Time(0);
 
-  /** @brief 触地稳定判定起始时间戳。 */
-  ros::Time land_touchdown_stable_start_time_ = ros::Time(0);
   /** ---------------运动参数----------------- */
   /** @brief 当前控制参考轨迹点。 */
   TrajectoryPoint trajectory_;

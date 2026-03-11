@@ -1,0 +1,70 @@
+# -------------------基本参数-----------------------
+# 无人机质量
+mass_kg: 0.96
+# 重力加速度
+gravity: 0.98
+# 控制器类型 0:px4_position_controller 1:px4_velocity_controller 2:sunray_attitude_controller 3:rl_raptor_controller
+controller_types: 0
+# 控制器更新频率
+controller_update_frequency: 100
+# 最大倾斜角度(角度制)
+max_angle: 20
+# -------------------保护参数-----------------------
+# 最低电压
+low_voltage: 13.2 # 4S battery
+# 达到最低电压时执行的操作 0:无操作 1:降落 2：返回
+low_voltage_operate: 0
+# 是否允许在无遥控器连接时启动无人机
+control_with_no_rc: false 
+# 当遥控器状态从连接变成丢失连接时，执行什么操作 0:无操作 1:降落 2:返回
+lost_with_rc: 1
+# 是否允许代码解锁无人机
+arm_with_code: true
+# 是否允许代码起飞
+takeoff_with_code: true
+# 是否进行倾倒检测
+check_flip: false
+# 指定降落模式 0：px4.auto_land 1:code to land
+land_type: 1
+# -------------------起飞降落参数-----------------------
+# 相对当前位置的起飞高度(米)
+takeoff_relative_height: 0.6
+# 起飞过程中的最大速度(m/s)
+takeoff_max_velocity: 0.5
+# 降落过程中的最大速度
+land_max_velocity: 0.5
+# -------------------电子围栏参数-----------------------
+# 使用ROS标准右手系，X正方向超机头前方，Y正方向朝机头左侧，Z轴朝上
+electronic_fence:
+  x_max: 4.0
+  x_min: -4.0
+  y_max: 4.0
+  y_min: -4.0
+  z_max: 2.0
+  z_min: 0.0 #如果你的使用场景中，起飞点并不是最低点，可以考虑酌情修改
+# -------------------消息超时参数-----------------------
+msg_timeout:
+  # 里程计
+  odom: 0.5
+  # 遥控器
+  rc: 0.5
+  # 对于向Sunray_FSM发送控制命令的各部分，都需要有心跳包的连接
+  control_heartbeat: 0.5
+  imu: 0.5
+  battery: 0.5
+# -------------------位置误差容许参数-----------------------
+error_tolerance:
+  pos_x: 0.05
+  pos_y: 0.05
+  pos_z: 0.05
+# -------------------飞行速度参数-----------------------
+# 最大飞行速度(m/s)
+max_velocity:
+  x_vel: 3.0
+  y_vel: 3.0
+  z_vel: 1.0
+# 遥控器控制时的最大速度
+max_velocity_with_rc:
+  x_vel: 1.0
+  y_vel: 1.0
+  z_vel: 1.0
