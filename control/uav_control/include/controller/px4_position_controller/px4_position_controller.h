@@ -68,30 +68,7 @@ private:
   ControllerOutput handle_move_state();
   /** @brief 处理 `LAND` 状态并返回对应控制输出。 */
   ControllerOutput handle_land_state();
-
-  /** @brief 降落末段是否已切换到速度接管阶段。 */
-  bool land_velocity_takeover_active_{false};
-
-  /** @brief 是否已达到下降峰值速度（用于二次穿越阈值判定）。 */
-  bool land_takeover_speed_peak_reached_{false};
-
-  /** @brief 上一周期记录的高度（m），用于估计观测下降率。 */
-  double last_land_altitude_m_{0.0};
-
-  /** @brief 上一周期高度记录时间戳。 */
-  ros::Time last_land_altitude_time_{0};
-
-  /** @brief 低速状态连续保持的起始时间戳。 */
-  ros::Time land_low_velocity_start_time_{0};
-
-  /** @brief “高度不再明显下降”连续保持的起始时间戳。 */
-  ros::Time land_no_descent_start_time_{0};
-
-  /** @brief 上一周期垂直速度 z 分量（m/s）。 */
-  double last_land_vz_mps_{0.0};
-
-  /** @brief `last_land_vz_mps_` 是否已被有效初始化。 */
-  bool last_land_vz_valid_{false};
+	
 };
 
 } // namespace uav_control

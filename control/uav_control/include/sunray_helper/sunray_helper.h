@@ -18,7 +18,7 @@ public:
   // 析构函数
   ~Sunray_Helper() = default;
   // async 异步，非阻塞,使用话题的形式发布
-  // spin 同步，阻塞，使用服务的方式实现，没有服务接口的，使用话题回调
+  // block(spin) 同步，阻塞，使用服务的方式实现，没有服务接口的，使用话题回调
   // 状态检验实现
   // -------------------------控制接口--------------------------------
   // 触发起飞
@@ -63,7 +63,7 @@ public:
   bool set_trajectory_asycn();
   bool set_trajectory_block();
 
-  // 复合控制模式，自适应控制频率
+  // 复合控制模式，自适应控制频率?
   // 假设存在这样的使用场景，用户需要测试自己的控制模型
   // uav_state + setpoint -> 用户模型 -> 控制量(位置+速度+姿态+推力)
   // 此时，如果用户不想修改我们的控制器，或者说希望先使用我们稳定的控制器，悬停后切换到他们的控制输出量
@@ -90,14 +90,14 @@ public:
   float get_target_thrust();
   // Sunray FSM状态
   // TODO:实现Sunray状态机 状态的数据类型,本质上是强类型枚举
-  sunray_control::control_state get_control_state();
+  uav_control::control_state get_control_state();
   //
 
 private:
   // 里程计消息缓存
-  uav_common::UAVStateEstimate uav_odometry_;
+  uav_control::UAVStateEstimate uav_odometry_;
   //  无人机目标状态缓存
-  uav_common::UAVStateEstimate uav_target_;
+  uav_control::UAVStateEstimate uav_target_;
   // 状态机状态缓存
   sunray_control::control_state fsm_state_;
 

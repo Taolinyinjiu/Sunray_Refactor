@@ -5,28 +5,6 @@
 
 namespace uav_control {
 
-namespace {
-
-double axisDurationFromLimit(double displacement_m, double velocity_limit_mps) {
-  if (!std::isfinite(displacement_m) || !std::isfinite(velocity_limit_mps) ||
-      velocity_limit_mps <= 0.0) {
-    return 0.0;
-  }
-  return std::abs(displacement_m) / (velocity_limit_mps * 2.0);
-}
-
-double curveDurationFromVelocityLimit(const Eigen::Vector3d &start_position,
-                                      const Eigen::Vector3d &target_position,
-                                      const Eigen::Vector3d &velocity_max) {
-  const Eigen::Vector3d delta = target_position - start_position;
-  const double tx = axisDurationFromLimit(delta.x(), velocity_max.x());
-  const double ty = axisDurationFromLimit(delta.y(), velocity_max.y());
-  const double tz = axisDurationFromLimit(delta.z(), velocity_max.z());
-  return std::max(tx, std::max(ty, tz));
-}
-
-} // namespace
-
 // 根据控制器当前状态，进入对应的函数
 ControllerOutput Position_Controller::update(void) {
   // 检查当前控制器是否稳定，并且需要满足控制器此时不在UNDEFINE或者OFF阶段

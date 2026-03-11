@@ -1,4 +1,8 @@
 # -------------------基本参数-----------------------
+# 无人机名称
+uav_name: uav
+# 无人机序号
+uav_id: 1
 # 无人机质量
 mass_kg: 0.96
 # 重力加速度
@@ -7,6 +11,8 @@ gravity: 0.98
 controller_types: 0
 # 控制器更新频率
 controller_update_frequency: 100
+# 是否将里程计与px4进行融合
+fuse_odom_to_px4: true
 # 最大倾斜角度(角度制)
 max_angle: 20
 # -------------------保护参数-----------------------
