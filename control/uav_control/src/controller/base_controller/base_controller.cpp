@@ -9,8 +9,7 @@ namespace uav_control {
  *
  * @details
  * 仅允许在 `OFF` 状态下调用
- * 该函数会锁存地面参考高度，生成起飞目标点（当前位置 +
- `relative_takeoff_height_`），
+ * 该函数会锁存地面参考高度，生成起飞目标点（当前位置 +`relative_takeoff_height_`），
  * 并重置起飞过程上下文后切换到 `TAKEOFF` 状态。
         @param relative_takeoff_height 相对起飞高度
         @param max_takeoff_velocity 起飞过程中的最大速度
@@ -22,7 +21,11 @@ bool Base_Controller::set_takeoff_mode(double relative_takeoff_height,
   if (controller_state_ != ControllerState::OFF) {
     return false;
   }
-  // 更新起飞最大速度
+  
+	// 刷新home位置
+	home_position_ = uav_current_state_.position;
+	
+	// 更新起飞最大速度
   takeoff_max_velocity_ = max_takeoff_velocity;
 
   // 进入起飞流程时刷新地面参考高度，供后续降落目标使用。
@@ -133,6 +136,7 @@ bool Base_Controller::set_current_odom(const UAVStateEstimate &current_state) {
     ground_reference_z_ = uav_current_state_.position.z();
     ground_reference_initialized_ = true;
   }
+	controller_ready_ = true;
   return true;
 }
 
@@ -157,6 +161,24 @@ bool Base_Controller::set_px4_attitude(const sensor_msgs::Imu &imu_msg) {
   px4_attitude_.z() = imu_msg.orientation.z;
   px4_attitude_.w() = imu_msg.orientation.w;
   return true;
+}
+
+bool Base_Controller::set_px4_land_status(const bool land_status){
+	if(land_status == false)
+	{
+		px4_land_status_ = false; // 置位
+		// 清空时间参数
+		land_holdstart_time_ = ros::Time(0);
+		land_holdkeep_time_ = ros::Time(0);
+		// 结束
+		return true;
+	}
+	// 进入到这里说明设置的值为true 
+	if(px4_land_status_ == false){
+		px4_land_status_ = true; // 首先，置位
+		land_holdstart_time_ = ros::Time::now(); // 设置检测落地接触时间为当前时间
+	}
+	return true;
 }
 
 /**

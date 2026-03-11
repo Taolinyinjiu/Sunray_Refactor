@@ -168,7 +168,6 @@ target_link_libraries(sunray_control_arbiter_lib
 
 add_library(uav_controller_lib
   src/utils/geometry_eigen_conversions.cpp
-  src/utils/quintic_curve.cpp
   src/utils/curve/cubic_curve.cpp
   src/utils/curve/quintic_curve.cpp
   src/controller/base_controller/base_controller.cpp
@@ -205,7 +204,7 @@ target_link_libraries(uav_control_demo_node
 
 add_executable(quintic_curve_test_node
   src/demo/quintic_curve_test_node.cpp
-  src/utils/quintic_curve.cpp
+  src/utils/curve/quintic_curve.cpp
 )
 target_link_libraries(quintic_curve_test_node
   control_data_types_lib

@@ -5,7 +5,7 @@
 #include <ros/ros.h>
 #include <std_msgs/Bool.h>
 
-#include "utils/quintic_curve.hpp"
+#include "utils/curve/quintic_curve.hpp"
 
 namespace {
 
@@ -59,10 +59,6 @@ public:
       start_delay_s_ = 0.0;
     }
 
-    curve_.set_start_position(start_point_);
-    curve_.set_end_position(end_point_);
-    curve_.set_keep_time(keep_time_);
-
     position_pub_ = nh_.advertise<geometry_msgs::PointStamped>(
         topic_prefix_ + "/position", 10);
     velocity_pub_ = nh_.advertise<geometry_msgs::Vector3Stamped>(
@@ -73,7 +69,6 @@ public:
         nh_.advertise<std_msgs::Bool>(topic_prefix_ + "/curve_status", 10);
 
     start_time_ros_ = ros::Time::now() + ros::Duration(start_delay_s_);
-    reset_curve_start_time(start_time_ros_);
     timer_ = nh_.createTimer(ros::Duration(1.0 / publish_hz_),
                              &QuinticCurveTestNode::timer_cb, this);
 
@@ -94,22 +89,16 @@ public:
   }
 
 private:
-  void reset_curve_start_time(const ros::Time &new_start_time) {
-    curve_.clear_time();
-    curve_.set_keep_time(keep_time_);
-    const bool ok = curve_.set_start_time(new_start_time);
-    if (!ok) {
-      ROS_WARN("[QuinticCurveTest] failed to set curve start time");
-    }
-  }
-
   void publish_sample(const ros::Time &stamp, const ros::Time &eval_time) {
-    const bool curve_status =
-        use_generate_test_ ? curve_.generate_land_curve(eval_time)
-                           : curve_.generate_by_current_time(eval_time);
-    const Eigen::Vector3d position = curve_.get_position();
-    const Eigen::Vector3d velocity = curve_.get_velocity();
-    const Eigen::Vector3d acceleration = curve_.get_acceleration();
+    (void)use_generate_test_;
+    const auto curve_state = uav_control::curve::evaluate_quintic_curve(
+        start_point_, Eigen::Vector3d::Zero(), end_point_, Eigen::Vector3d::Zero(),
+        start_time_ros_.toSec(), keep_time_, eval_time.toSec());
+
+    const bool curve_status = curve_state.valid;
+    const Eigen::Vector3d position = curve_state.position;
+    const Eigen::Vector3d velocity = curve_state.velocity;
+    const Eigen::Vector3d acceleration = curve_state.acceleration;
 
     geometry_msgs::PointStamped pos_msg;
     pos_msg.header.stamp = stamp;
@@ -148,7 +137,6 @@ private:
 
     if (loop_ && (now - start_time_ros_).toSec() > keep_time_) {
       start_time_ros_ = now;
-      reset_curve_start_time(start_time_ros_);
     }
 
     publish_sample(now, now);
@@ -169,7 +157,6 @@ private:
   std::string frame_id_ = "map";
   std::string topic_prefix_ = "quintic_curve_test";
   ros::Time start_time_ros_;
-  uav_control::Quintic_Curve curve_;
 
   ros::Publisher position_pub_;
   ros::Publisher velocity_pub_;

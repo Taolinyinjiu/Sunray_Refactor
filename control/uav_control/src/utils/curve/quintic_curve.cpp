@@ -7,14 +7,39 @@ namespace uav_control {
 namespace curve {
 namespace {
 
+/**
+ * @brief 判断标量是否为有限值。
+ * @param value 待检查标量。
+ * @return true 表示不是 NaN/Inf。
+ */
 bool is_finite_scalar(double value) { return std::isfinite(value); }
 
+/**
+ * @brief 判断三维向量所有分量是否为有限值。
+ * @param value 待检查向量。
+ * @return true 表示所有分量均有限。
+ */
 bool is_finite_vector(const Eigen::Vector3d &value) { return value.allFinite(); }
 
+/**
+ * @brief 零端点速度/加速度 quintic 轨迹的速度峰值比例系数。
+ *
+ * @details
+ * 对 `q(s)=10s^3-15s^4+6s^5`（`s=t/T`）有
+ * `max |dq/ds| = 15/8`，故三维位移范数意义下：
+ * `v_peak = (15/8) * ||Δp|| / T`。
+ */
 constexpr double kZeroVelAccQuinticPeakVelocityScale = 15.0 / 8.0;
 
 } // namespace
 
+/**
+ * @brief 评估五次轨迹在给定时刻的运动状态。
+ *
+ * @details
+ * 实现与头文件文档保持一致：输入时间先裁剪，再在裁剪时刻计算
+ * `position/velocity/acceleration/jerk/snap`。
+ */
 QuinticCurveState evaluate_quintic_curve(
     const Eigen::Vector3d &start_position,
     const Eigen::Vector3d &start_velocity,
@@ -82,6 +107,13 @@ QuinticCurveState evaluate_quintic_curve(
   return output;
 }
 
+/**
+ * @brief 根据最大速度上限反解零边界 quintic 的最小运动时长。
+ *
+ * @details
+ * 采用解析式：
+ * `T_min = (15/8) * ||end - start|| / max_speed_mps`。
+ */
 QuinticCurveMinDuration solve_quintic_min_duration_from_max_speed(
     const Eigen::Vector3d &start_position, const Eigen::Vector3d &end_position,
     double max_speed_mps) {

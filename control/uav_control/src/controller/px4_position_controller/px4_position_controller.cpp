@@ -1,5 +1,5 @@
 #include "controller/px4_position_controller/px4_position_controller.h"
-
+#include "utils/curve/quintic_curve.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -27,85 +27,14 @@ double curveDurationFromVelocityLimit(const Eigen::Vector3d &start_position,
 
 } // namespace
 
-
-// 重写加载参数函数，目前只需要加载uav_name+uav_id
-bool Position_Controller::load_param(ros::NodeHandle &nh) {
-  if (!nh.getParam("/uav_ns", uav_ns_)) {
-		// 如果没有得到uav_ns参数，就检查uav_name与uav_id
-    std::string uav_name;
-		int uav_id;
-		// 如果至少有一个没有获取到，则返回false状态
-		if(!nh.getParam("/uav_name", uav_name) || !nh.getParam("/uav_id", uav_id))
-			return false;
-		else {
-			// 如果两个都检测到了，就进行拼接
-			uav_ns_ = uav_name + std::to_string(uav_id);
-		}
-  }
-
-  // 规范化命名空间：将 "uav1/" 或 "uav1"规范化输出为"/uav1"
-  std::string ns = uav_ns_;
-  if (ns.empty()) {
-    return false;
-  }
-  if (ns.front() != '/') {
-    ns = "/" + ns;
-  }
-  if (ns.back() == '/') {
-    ns.pop_back();
-  }
-  uav_ns_ = ns;
-
-  // 读取误差容限参数
-  std::vector<double> error_param;
-  if (!nh.getParam(uav_ns_ + "/error_tolerance", error_param)) {
-    return false;
-  }
-  if (error_param.size() < 3) {
-    return false;
-  }
-  // 将vector转换为Eigen
-  error_tolerance_.x() = error_param[0];
-  error_tolerance_.y() = error_param[1];
-  error_tolerance_.z() = error_param[2];
-  if (!error_tolerance_.allFinite() || (error_tolerance_.array() <= 0.0).any()) {
-    return false;
-  }
-
-  std::vector<double> velocity_max_param;
-  if (!nh.getParam(uav_ns_ + "/velocity_max", velocity_max_param)) {
-    return false;
-  }
-  if (velocity_max_param.size() < 3) {
-    return false;
-  }
-  velocity_max_.x() = velocity_max_param[0];
-  velocity_max_.y() = velocity_max_param[1];
-  velocity_max_.z() = velocity_max_param[2];
-  if (!velocity_max_.allFinite() || (velocity_max_.array() <= 0.0).any()) {
-    return false;
-  }
-
-  // 起飞相对高度（默认使用基类默认值）。
-  nh.param(uav_ns_ + "/takeoff_height", takeoff_height_, takeoff_height_);
-  nh.param(uav_ns_ + "/takeoff_time", takeoff_time_, takeoff_time_);
-  nh.param(uav_ns_ + "/land_time", land_time_, land_time_);
-
-  // if (!std::isfinite(takeoff_time_) || takeoff_time_ < 0.0) {
-  //   return false;
-  // }
-  // if (!std::isfinite(land_time_) || land_time_ < 0.0) {
-  //   return false;
-  // }
-
-  has_loadparam_ = true;
-  return true;
-}
-
 // 根据控制器当前状态，进入对应的函数
 ControllerOutput Position_Controller::update(void) {
-  if (!has_loadparam_) {
+  // 检查当前控制器是否稳定，并且需要满足控制器此时不在UNDEFINE或者OFF阶段
+  if (!controller_ready_ && controller_state_ != ControllerState::UNDEFINED &&
+      controller_state_ != ControllerState::OFF) {
+    // 切换为紧急降落
     controller_state_ = ControllerState::EMERGENCY_LAND;
+    // 本次环节主要用于稳定无人机姿态，切换为速度控制，输出为零速度
     ControllerOutput safe_output;
     safe_output.channel_enable(ControllerOutputMask::VELOCITY);
     safe_output.velocity = Eigen::Vector3d::Zero();
@@ -117,10 +46,10 @@ ControllerOutput Position_Controller::update(void) {
       uav_current_state_.isValid()) {
     controller_state_ = ControllerState::OFF;
   }
-
+  // 重置起飞降落上下文
   reset_takeoff_context_if_needed();
   reset_land_context_if_needed();
-
+  // 根据状态机状态进入对应的分支
   switch (controller_state_) {
   case ControllerState::UNDEFINED:
     return handle_undefined_state();
@@ -145,33 +74,23 @@ void Position_Controller::reset_takeoff_context_if_needed() {
     // 重置起飞上下文标识
     takeoff_initialized_ = false;
     // 清空时间参数
+    takeoff_start_time_ = ros::Time(0);
     takeoff_holdstart_time_ = ros::Time(0);
     takeoff_holdkeep_time_ = ros::Time(0);
+    takeoff_singlecurve_time_ = 0.0;
   }
 }
 
 void Position_Controller::reset_land_context_if_needed() {
   // 如果当前状态不为LAND状态，但是LAND标识符又指示初始化了，说明当前已经结束了LAND阶段，需要重置LAND参数
-  if (controller_state_ != ControllerState::LAND &&
-      (land_initialized_ || land_velocity_takeover_active_)) {
-    // 重置标识符
-		land_initialized_ = false;
-    land_velocity_takeover_active_ = false;
-    land_takeover_speed_peak_reached_ = false;
-		// 清空land位置
-		land_position_ = Eigen::Vector3d::Zero();
-		// 清空时间参数
+  if (controller_state_ != ControllerState::LAND && land_initialized_) {
+    // 重置降落上下文标识
+    land_initialized_ = false;
+    // 清空时间参数
+    land_start_time_ = ros::Time(0);
     land_holdstart_time_ = ros::Time(0);
-		land_holdkeep_time_ = ros::Time(0);
-    land_touchdown_stable_start_time_ = ros::Time(0);
-    last_land_altitude_m_ = 0.0;
-    last_land_altitude_time_ = ros::Time(0);
-    land_low_velocity_start_time_ = ros::Time(0);
-    land_no_descent_start_time_ = ros::Time(0);
-    last_land_vz_mps_ = 0.0;
-    last_land_vz_valid_ = false;
-    // 清空曲线参数
-		quintic_curve_generation.clear_all();
+    land_holdkeep_time_ = ros::Time(0);
+    land_singlecurve_time_ = 0.0;
   }
 }
 
@@ -187,13 +106,7 @@ ControllerOutput Position_Controller::handle_off_state() {
 
 ControllerOutput Position_Controller::handle_takeoff_state() {
   ControllerOutput temp_output;
-
-  // 首次进入TAKEOFF时，重置起飞计时上下文
-  if (!takeoff_initialized_) {
-    takeoff_initialized_ = true;
-    takeoff_holdstart_time_ = ros::Time(0);
-    takeoff_holdkeep_time_ = ros::Time(0);
-  }
+  /** ---------------起飞准备工作----------------- */
 
   // 未解锁：持续发零速度，保持控制链路活跃
   if (!px4_arm_state_) {
@@ -203,14 +116,27 @@ ControllerOutput Position_Controller::handle_takeoff_state() {
     temp_output.velocity.z() = 0.0;
     return temp_output;
   }
+  // 检查起飞标识符，如果takeoff_initialized_=false,则表示当前为第一次进入takeoff阶段，需要重置参数
+  if (!takeoff_initialized_) {
+    // 设置为起飞参数已经初始化
+    takeoff_initialized_ = true;
+    // 设置起飞时间为当前
+    takeoff_start_time_ = ros::Time::now();
+    // 重置稳定判断时间戳
+    takeoff_holdstart_time_ = ros::Time(0);
+    takeoff_holdkeep_time_ = ros::Time(0);
+  }
 
-  // 111的二进制是0x07
-  constexpr uint8_t kTakeoffReadyMask = 0x07U;
+  /** ---------------到位误差检测----------------- */
+  constexpr uint8_t kTakeoffReadyMask = 0x07U; // 111的二进制是0x07
   uint8_t takeoff_ready = 0U;
   // 计算误差
-  const double ex = std::abs(takeoff_position_.x() - uav_current_state_.position.x());
-  const double ey = std::abs(takeoff_position_.y() - uav_current_state_.position.y());
-  const double ez = std::abs(takeoff_position_.z() - uav_current_state_.position.z());
+  const double ex =
+      std::abs(takeoff_expect_position_.x() - uav_current_state_.position.x());
+  const double ey =
+      std::abs(takeoff_expect_position_.y() - uav_current_state_.position.y());
+  const double ez =
+      std::abs(takeoff_expect_position_.z() - uav_current_state_.position.z());
   // 如果误差在容许的范围内，置位
   if (ex < error_tolerance_.x()) {
     takeoff_ready |= (1U << 0);
@@ -225,12 +151,12 @@ ControllerOutput Position_Controller::handle_takeoff_state() {
   // 根据在期望的起飞位置误差内的持续时间来判断是否达到了稳定的阶段
   const ros::Time now = ros::Time::now();
   // 强制要求至少要2s用于判断是否稳定悬停
-	const double hold_required =
+  const double hold_required =
       (takeoff_success_time_ > 2.0) ? takeoff_success_time_ : 2.0;
-	// 如果三轴上的误差都满足要求，开始计算持续时间是否满足要求
+  // 如果三轴上的误差都满足要求，开始计算持续时间是否满足要求
   if (takeoff_ready == kTakeoffReadyMask) {
-		// 如果保持的开始时间为0
-		if (takeoff_holdstart_time_.isZero()) {
+    // 如果保持的开始时间为0
+    if (takeoff_holdstart_time_.isZero()) {
       takeoff_holdstart_time_ = now;
       takeoff_holdkeep_time_ = now;
     } else {
@@ -238,9 +164,15 @@ ControllerOutput Position_Controller::handle_takeoff_state() {
       const ros::Duration hold_time = now - takeoff_holdstart_time_;
       if (hold_time.toSec() >= hold_required) {
         // 设置轨迹点为当前起飞参数
-        trajectory_.position = takeoff_position_;
+        trajectory_.position = takeoff_expect_position_;
         // 切换到HOVER状态
         controller_state_ = ControllerState::HOVER;
+        // 构造零速输出
+        temp_output.channel_enable(ControllerOutputMask::POSITION);
+        temp_output.channel_enable(ControllerOutputMask::VELOCITY);
+        temp_output.position = takeoff_expect_position_;
+        temp_output.velocity.setZero();
+        return temp_output;
       }
     }
   } else {
@@ -248,14 +180,67 @@ ControllerOutput Position_Controller::handle_takeoff_state() {
     takeoff_holdstart_time_ = ros::Time(0);
     takeoff_holdkeep_time_ = ros::Time(0);
   }
-
-  // 持续输出起飞目标点
-  temp_output.channel_enable(ControllerOutputMask::POSITION);
-  temp_output.position = takeoff_position_;
+  /** ---------------计算起飞阶段需要的时间----------------- */
+  // 1. 起点位置和速度
+  Eigen::Vector3d start_position = home_position_;
+  Eigen::Vector3d start_velocity;
+  start_velocity.setZero();
+  // 2. 终点位置和速度
+  Eigen::Vector3d stop_position = takeoff_expect_position_;
+  Eigen::Vector3d stop_velocity;
+  stop_velocity.setZero();
+  // 3. 根据当前相对高度和最大速度评估起飞时间，如果小于0.5则进行调整
+  if (takeoff_singlecurve_time_ == 0.0) {
+    // 根据最大速度反推起飞时间
+    double curve_max_velocity = takeoff_max_velocity_;
+    const auto min_duration_ret =
+        curve::solve_quintic_min_duration_from_max_speed(
+            start_position, stop_position, curve_max_velocity);
+    // 如果曲线计算正确，则valid为true
+    if (min_duration_ret.valid == true) {
+      // 设置理论时间
+      takeoff_singlecurve_time_ = min_duration_ret.min_duration_s;
+      // 考虑到实际中的一些原因，我们将这个值扩大一些
+      takeoff_singlecurve_time_ *= 2;
+    } else {
+      // 如果曲线得不到有效的计算值，说明参数有问题，此时切换到LAND进行降落
+      controller_state_ = ControllerState::LAND;
+      temp_output.clear_all();
+      temp_output.channel_enable(ControllerOutputMask::VELOCITY);
+      temp_output.velocity.setZero();
+      return temp_output;
+    }
+  }
+  /** ---------------计算起飞五次项曲线参数----------------- */
+  if (takeoff_singlecurve_time_ > takeoff_singlecurve_limit_time_) {
+    // 如果曲线用时大于限制时间，则认为是符合要求的,根据曲线参数生成对应的指令
+    const auto curve_result = curve::evaluate_quintic_curve(
+        start_position, start_velocity, stop_position, stop_velocity,
+        takeoff_start_time_.toSec(), takeoff_singlecurve_time_,
+        ros::Time::now().toSec());
+    if (curve_result.valid == true) {
+      // 五次项曲线输出 位置 速度 加速度
+      temp_output.channel_enable(ControllerOutputMask::POSITION);
+      temp_output.channel_enable(ControllerOutputMask::VELOCITY);
+      temp_output.channel_enable(ControllerOutputMask::ACCELERATION);
+      temp_output.position = curve_result.position;
+      temp_output.velocity = curve_result.velocity;
+      temp_output.acceleration_or_force = curve_result.acceleration;
+    } else if (curve_result.valid == false) {
+      // 如果曲线生成有问题，那就直接给目标点吧
+      temp_output.channel_enable(ControllerOutputMask::POSITION);
+      temp_output.position = takeoff_expect_position_;
+    }
+  } else {
+    // TODO：这里的逻辑需要修改
+    // 如果曲线用时小于曲线限制时间,说明速度比较大，或者起飞高度比较小
+    // 持续输出起飞目标点
+    temp_output.channel_enable(ControllerOutputMask::POSITION);
+    temp_output.position = takeoff_expect_position_;
+  }
+  /** ---------------输出控制指令---------------- */
   return temp_output;
 }
-
-
 
 ControllerOutput Position_Controller::handle_hover_state() {
   ControllerOutput temp_output;
@@ -276,7 +261,8 @@ ControllerOutput Position_Controller::handle_move_state() {
     temp_output.channel_enable(ControllerOutputMask::VELOCITY);
     temp_output.velocity = trajectory_.velocity;
   }
-  if (trajectory_.is_channel_enabled(TrajectoryPoint::ValidMask::ACCELERATION)) {
+  if (trajectory_.is_channel_enabled(
+          TrajectoryPoint::ValidMask::ACCELERATION)) {
     temp_output.channel_enable(ControllerOutputMask::ACCELERATION);
     temp_output.acceleration_or_force = trajectory_.acceleration;
   }
@@ -295,235 +281,141 @@ ControllerOutput Position_Controller::handle_move_state() {
 }
 
 ControllerOutput Position_Controller::handle_land_state() {
+  /** ---------------降落准备工作---------------- */
+  // 1. 构造临时输出变量
   ControllerOutput temp_output;
-  // LAND 阶段核心思路：
-  // 1) 用五次曲线从当前点平滑过渡到 land 目标点；
-  // 2) 当下降速度达到阈值或接近地面后，切换为恒速下沉接管；
-  // 3) 通过“低速持续 / 高度不再下降持续”判定触地，再切 OFF。
-  constexpr double kLandReplanPosEpsM = 0.05;
-  constexpr double kLandReplanTimeEpsS = 0.1;
-  constexpr double kTakeoverDescentVzMps = 0.2;
-  constexpr double kTakeoverArmMarginMps = 0.03;
-  constexpr double kTakeoverNearGroundM = 0.30;
-  constexpr double kLandingFastDescentMps = 0.20;
-  constexpr double kLandingNearGroundDescentMps = 0.05;
-  constexpr double kLandingSlowBandM = 0.15;
-  constexpr double kLandingDescentDeadbandM = 0.08;
-  constexpr double kLandingLowSpeedTolMps = 0.12;
-  constexpr double kLandingLowSpeedHoldS = 0.8;
-  constexpr double kNoDescentRateTolMps = 0.02;
-  constexpr double kNoDescentHoldS = 0.5;
-  constexpr double kLandingNearGroundBandM = 0.35;
-  constexpr double kLandingTouchdownConfirmS = 0.25;
-
-  // 使用基类已有的降落参考变量：land_position_ + land_time_。
-  const Eigen::Vector3d requested_target = land_position_;
-  const double configured_min_land_duration_s =
-      (land_time_ > 0.0) ? land_time_ : land_success_time_;
-  if (configured_min_land_duration_s <= 0.0) {
-    temp_output.channel_enable(ControllerOutputMask::VELOCITY);
-    temp_output.velocity = Eigen::Vector3d::Zero();
+  // 2. 检测当前是否为第一次进入降落函数
+  if (land_initialized_ == false) {
+    // 第一次进入降落阶段,置位标识符
+    land_initialized_ = true;
+    // 设置降落开始时间为当前时间戳
+    land_start_time_ = ros::Time::now();
+    // 重置时间参数
+    land_holdstart_time_ = ros::Time(0);
+    land_holdkeep_time_ = ros::Time(0);
+  }
+  /** ---------------判断降落类型---------------- */
+  if (land_type_ == 1) {
+    // 如果降落类型为1，说明当前使用的是px4的auto_land降落方式，但是Controller并不能对px4的模式进行切换，因此这里将控制权限转交给状态机
+    // 也就是说，这里控制器输出空状态，状态机使用另一个函数切换px4到auto_land模式
+    temp_output.clear_all();
     return temp_output;
   }
-
-  if (error_tolerance_.z() <= 0.0) {
-    temp_output.channel_enable(ControllerOutputMask::VELOCITY);
-    temp_output.velocity = Eigen::Vector3d::Zero();
-    return temp_output;
-  }
-
-  // 检查是否需要重建降落轨迹：
-  // - 首次进入 LAND；
-  // - 目标点变化超过阈值；
-  // - 持续时间参数变化超过阈值；
-  // - 曲线尚未配置起始时间。
-  const ros::Time now = ros::Time::now();
-  const double current_z = uav_current_state_.position.z();
-  const double z_diff = current_z - requested_target.z();
-  const double vz = uav_current_state_.velocity.z();
-  const double velocity_norm = uav_current_state_.velocity.norm();
-  const Eigen::Vector3d duration_ref_start =
-      land_initialized_ ? quintic_curve_generation.get_start_position()
-                        : uav_current_state_.position;
-  const double computed_land_duration_s = curveDurationFromVelocityLimit(
-      duration_ref_start, requested_target, velocity_max_);
-  const double requested_land_duration_s =
-      std::max(computed_land_duration_s, configured_min_land_duration_s);
-
-  const bool land_target_changed =
-      (requested_target - quintic_curve_generation.get_end_position()).norm() >
-      kLandReplanPosEpsM;
-  const bool land_duration_changed =
-      std::abs(requested_land_duration_s - quintic_curve_generation.get_keep_time()) >
-      kLandReplanTimeEpsS;
-  const bool curve_time_invalid = quintic_curve_generation.get_start_time().isZero();
-  const bool need_reinit =
-      !land_initialized_ || land_target_changed || land_duration_changed ||
-      curve_time_invalid;
-
-  if (need_reinit) {
-    // 以“当前状态位置”为曲线起点，避免轨迹跳变。
-    land_holdstart_time_ = now;
-    land_holdkeep_time_ = now;
-
-    const double reinit_computed_duration_s = curveDurationFromVelocityLimit(
-        uav_current_state_.position, requested_target, velocity_max_);
-    const double reinit_land_duration_s =
-        std::max(reinit_computed_duration_s, configured_min_land_duration_s);
-
-    // 重新配置五次曲线参数，并设置起始时间。
-    quintic_curve_generation.clear_all();
-    quintic_curve_generation.set_start_position(uav_current_state_.position);
-    quintic_curve_generation.set_end_position(requested_target);
-    quintic_curve_generation.set_keep_time(reinit_land_duration_s);
-    if (!quintic_curve_generation.set_start_time(now)) {
-      // 曲线初始化失败时走安全兜底：零速度，等待下周期重试。
-      land_initialized_ = false;
-      land_velocity_takeover_active_ = false;
-      land_takeover_speed_peak_reached_ = false;
-      land_touchdown_stable_start_time_ = ros::Time(0);
-      last_land_altitude_m_ = 0.0;
-      last_land_altitude_time_ = ros::Time(0);
-      land_low_velocity_start_time_ = ros::Time(0);
-      land_no_descent_start_time_ = ros::Time(0);
-      last_land_vz_mps_ = 0.0;
-      last_land_vz_valid_ = false;
+  /** ---------------计算理论降落速度---------------- */
+  // 1. 起点位置和速度
+  Eigen::Vector3d start_position = uav_current_state_.position;
+  Eigen::Vector3d start_velocity;
+  start_velocity.setZero();
+  // 2. 终点位置和速度
+  Eigen::Vector3d stop_position = land_expect_position_;  //land_expect_position_.z使用的是起飞时记忆的参考地平面
+  stop_position.z() = 0.3;
+  Eigen::Vector3d stop_velocity;
+  stop_velocity.setZero();
+  stop_velocity.z() = -0.2;
+  // 3. 根据当前z轴差值，以及降落过程中的最大速度，计算降落时间
+  if (land_singlecurve_time_ == 0.0) {
+    // 根据最大速度反推起飞时间
+    double curve_max_velocity = land_max_velocity_;
+    const auto min_duration_ret =
+        curve::solve_quintic_min_duration_from_max_speed(
+            start_position, stop_position, curve_max_velocity);
+    // 如果曲线计算正确，则valid为true
+    if (min_duration_ret.valid == true) {
+      // 设置理论时间
+      land_singlecurve_time_ = min_duration_ret.min_duration_s;
+      // 考虑到实际中的一些原因，我们将这个值扩大一些
+      land_singlecurve_time_ *= 2;
+    } else {
+      // 如果曲线得不到有效的计算值，说明参数有问题，此时切换到auto_land模式进行降落
+      land_type_ = 1;
+      temp_output.clear_all();
       temp_output.channel_enable(ControllerOutputMask::VELOCITY);
-      temp_output.velocity = Eigen::Vector3d::Zero();
+      temp_output.velocity.setZero();
       return temp_output;
     }
-    land_initialized_ = true;
-    land_velocity_takeover_active_ = false;
-    land_takeover_speed_peak_reached_ = false;
-    land_touchdown_stable_start_time_ = ros::Time(0);
-    last_land_altitude_m_ = 0.0;
-    last_land_altitude_time_ = ros::Time(0);
-    land_low_velocity_start_time_ = ros::Time(0);
-    land_no_descent_start_time_ = ros::Time(0);
-    last_land_vz_mps_ = 0.0;
-    last_land_vz_valid_ = false;
   }
-
-  // 阶段 A：曲线下降。达到接管条件后切换到阶段 B。
-  const double active_land_duration_s = quintic_curve_generation.get_keep_time();
-  const double delta_time = (now - land_holdstart_time_).toSec();
-  if (!land_velocity_takeover_active_ && delta_time <= active_land_duration_s) {
-    const bool curve_state = quintic_curve_generation.generate_land_curve(now);
-    if (curve_state) {
+  /** ---------------计算降落五次项曲线参数----------------- */
+  if (land_singlecurve_time_ > land_singlecurve_limit_time_) {
+    // 如果曲线用时大于限制时间，则认为是符合要求的,根据曲线参数生成对应的指令
+    const auto curve_result = curve::evaluate_quintic_curve(
+        start_position, start_velocity, stop_position, stop_velocity,
+        land_start_time_.toSec(), land_singlecurve_time_,
+        ros::Time::now().toSec());
+    if (curve_result.valid == true) {
+      // 五次项曲线输出 位置 速度 加速度
       temp_output.channel_enable(ControllerOutputMask::POSITION);
       temp_output.channel_enable(ControllerOutputMask::VELOCITY);
       temp_output.channel_enable(ControllerOutputMask::ACCELERATION);
-      temp_output.position = quintic_curve_generation.get_position();
-      temp_output.velocity = quintic_curve_generation.get_velocity();
-      temp_output.acceleration_or_force = quintic_curve_generation.get_acceleration();
-    } else {
-      // 曲线生成失败时，退化为当前位置保持 + 零速度，避免突发控制输出。
+      temp_output.position = curve_result.position;
+      temp_output.velocity = curve_result.velocity;
+      temp_output.acceleration_or_force = curve_result.acceleration;
+    } else if (curve_result.valid == false) {
+      // 如果曲线生成有问题，那就直接匀速下降吧
       temp_output.channel_enable(ControllerOutputMask::POSITION);
       temp_output.channel_enable(ControllerOutputMask::VELOCITY);
-      temp_output.position = uav_current_state_.position;
-      temp_output.velocity = Eigen::Vector3d::Zero();
-    }
-
-    // 速度接管触发在“第二次穿越 -0.2m/s”：
-    // 1) 先达到更大下降速度（置位 peak）；
-    // 2) 然后从更负速度回升并上穿 -0.2m/s（减速段）。
-    if (vz <= -(kTakeoverDescentVzMps + kTakeoverArmMarginMps)) {
-      land_takeover_speed_peak_reached_ = true;
-    }
-    const bool second_cross_takeover =
-        last_land_vz_valid_ && land_takeover_speed_peak_reached_ &&
-        (last_land_vz_mps_ <= -kTakeoverDescentVzMps) &&
-        (vz > -kTakeoverDescentVzMps);
-    last_land_vz_mps_ = vz;
-    last_land_vz_valid_ = true;
-
-    const bool speed_takeover = second_cross_takeover;
-    const bool altitude_takeover = (z_diff <= kTakeoverNearGroundM);
-    if (!(speed_takeover || altitude_takeover)) {
-      land_holdkeep_time_ = now;
-      return temp_output;
-    }
-
-    // 达到接管条件，后续周期由恒速下降与触地判定接管。
-    land_velocity_takeover_active_ = true;
-  } else if (!land_velocity_takeover_active_ &&
-             delta_time > active_land_duration_s) {
-    // 曲线超时仍未满足条件时，强制进入接管阶段避免卡住。
-    land_velocity_takeover_active_ = true;
-  }
-
-  // 阶段 B：恒速下降 + 触地判定。
-  if (velocity_norm <= kLandingLowSpeedTolMps) {
-    if (land_low_velocity_start_time_.isZero()) {
-      land_low_velocity_start_time_ = now;
+      temp_output.position =
+          land_expect_position_; // land_expect_position_.position.z() = 0.3
+      if (land_max_velocity_ < 0)
+        temp_output.velocity.z() = land_max_velocity_ / 2;
+      else
+        temp_output.velocity.z() = -land_max_velocity_ / 2;
     }
   } else {
-    land_low_velocity_start_time_ = ros::Time(0);
-  }
-
-  if (!last_land_altitude_time_.isZero()) {
-    const double dt = (now - last_land_altitude_time_).toSec();
-    if (dt > 1e-3) {
-      const double observed_vz = (current_z - last_land_altitude_m_) / dt;
-      if (observed_vz >= -kNoDescentRateTolMps) {
-        if (land_no_descent_start_time_.isZero()) {
-          land_no_descent_start_time_ = now;
-        }
-      } else {
-        land_no_descent_start_time_ = ros::Time(0);
-      }
-    }
-  }
-  last_land_altitude_m_ = current_z;
-  last_land_altitude_time_ = now;
-
-  const bool near_ground = std::abs(z_diff) <= kLandingNearGroundBandM;
-  const bool landed_by_low_speed =
-      !land_low_velocity_start_time_.isZero() &&
-      (now - land_low_velocity_start_time_).toSec() >= kLandingLowSpeedHoldS;
-  const bool landed_by_no_descent =
-      !land_no_descent_start_time_.isZero() &&
-      (now - land_no_descent_start_time_).toSec() >= kNoDescentHoldS;
-  const bool touchdown_detected =
-      near_ground && (landed_by_low_speed || landed_by_no_descent);
-
-  if (touchdown_detected) {
-    if (land_touchdown_stable_start_time_.isZero()) {
-      land_touchdown_stable_start_time_ = now;
-    }
-    if ((now - land_touchdown_stable_start_time_).toSec() >=
-        kLandingTouchdownConfirmS) {
-      controller_state_ = ControllerState::OFF;
-      temp_output.clear_all();
-      return temp_output;
-    }
+    // TODO：这里的逻辑需要修改
+    // 如果曲线生成有问题，那就直接匀速下降吧
+    temp_output.channel_enable(ControllerOutputMask::POSITION);
     temp_output.channel_enable(ControllerOutputMask::VELOCITY);
-    temp_output.velocity = Eigen::Vector3d::Zero();
-    land_holdkeep_time_ = now;
-    return temp_output;
-  }
-  land_touchdown_stable_start_time_ = ros::Time(0);
+    temp_output.position =
+        land_expect_position_; // land_expect_position_.position.z() = 0.3
 
-  // 未判定触地：采用分段下沉，近地减速并在疑似接触时停止下压，
-  // 避免接触阶段持续负速度激发反弹。
-  const bool contact_guard_active =
-      near_ground &&
-      (!land_low_velocity_start_time_.isZero() ||
-       !land_no_descent_start_time_.isZero());
-  temp_output.channel_enable(ControllerOutputMask::VELOCITY);
-  temp_output.velocity.x() = 0.0;
-  temp_output.velocity.y() = 0.0;
-  if (contact_guard_active) {
-    temp_output.velocity.z() = 0.0;
-  } else if (z_diff > kLandingSlowBandM) {
-    temp_output.velocity.z() = -kLandingFastDescentMps;
-  } else if (z_diff > kLandingDescentDeadbandM) {
-    temp_output.velocity.z() = -kLandingNearGroundDescentMps;
-  } else {
-    temp_output.velocity.z() = 0.0;
+    if (land_max_velocity_ < 0)
+      temp_output.velocity.z() = land_max_velocity_ / 2;
+    else
+      temp_output.velocity.z() = -land_max_velocity_ / 2;
   }
-  land_holdkeep_time_ = now;
-  return temp_output;
+  /** ---------------匀速下降阶段----------------- */
+  // 当z轴高度到达0.3m时，切换为速度控制，控制z轴速度
+  if (uav_current_state_.position.z() <= 0.3) {
+    // 清除参数
+    temp_output.clear_all();
+    temp_output.channel_enable(ControllerOutputMask::POSITION);
+    temp_output.channel_enable(ControllerOutputMask::VELOCITY);
+    // 重新注入参数
+    temp_output.position = land_expect_position_;
+    temp_output.position.z() -= 0.2;
+    temp_output.velocity = stop_velocity;
+  }
+	/** ---------------检测着陆阶段----------------- */
+  // 检测着陆分为两种方式，一种是根据传入的px4 着陆检测传感器的状态，另一个种是根据三轴速度是否 <-0.1
+	if(px4_land_status_ == true)
+	{
+		// 此为最高的优先级，在该模式下，输出置零
+		temp_output.clear_all();
+		temp_output.channel_enable(ControllerOutputMask::VELOCITY);
+		temp_output.velocity.setZero();
+		temp_output.velocity.z() = -0.2;
+		land_holdkeep_time_ = ros::Time::now();
+		if((land_holdkeep_time_ - land_holdstart_time_).toSec() > land_success_time_)
+		{
+			//切换状态为OFF
+			controller_state_ = ControllerState::OFF;
+		}
+		return temp_output;
+	}
+	if(uav_current_state_.velocity.z() <= -0.1)
+	{
+		land_holdkeep_time_ = ros::Time::now();
+		if(land_holdstart_time_.toSec() < 0.1) // 
+		{
+			return temp_output;
+		}
+		if((land_holdkeep_time_ - land_holdstart_time_).toSec() > land_success_time_)
+		{
+			//切换状态为OFF
+			controller_state_ = ControllerState::OFF;
+		}
+	}
+	return temp_output;
 }
 
 } // namespace uav_control

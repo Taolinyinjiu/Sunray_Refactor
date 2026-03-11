@@ -27,21 +27,6 @@ namespace uav_control {
 class Position_Controller : public Base_Controller {
 public:
   /**
-   * @brief 从 ROS 参数服务器加载位置控制器参数。
-   *
-   * @param nh ROS 节点句柄。
-   * @return true 参数加载成功；false 参数缺失或非法。
-   *
-   * @note
-   * 典型读取项包含：
-   * - `/uav_ns`（或 `/uav_name` + `/uav_id` 组合）；
-   * - `<uav_ns>/error_tolerance`；
-   * - `<uav_ns>/velocity_max`；
-   * - `<uav_ns>/takeoff_height`、`takeoff_time`、`land_time`。
-   */
-  bool load_param(ros::NodeHandle &nh) override;
-
-  /**
    * @brief 控制器周期更新入口。
    *
    * @return 当前周期控制输出，具体有效通道由 `output_mask` 指示。

@@ -416,23 +416,14 @@ private:
   }
 
   bool try_load_controller_param(bool first_attempt) {
+    (void)first_attempt;
     if (controller_param_loaded_) {
       return true;
     }
-    if (controller_->load_param(nh_)) {
-      controller_param_loaded_ = true;
-      ROS_INFO("[UavControlDemo] controller load_param success");
-      return true;
-    }
-    if (first_attempt) {
-      ROS_WARN(
-          "[UavControlDemo] controller load_param failed, waiting params and retrying...");
-    } else {
-      ROS_WARN_THROTTLE(
-          2.0,
-          "[UavControlDemo] controller load_param still not ready, retrying...");
-    }
-    return false;
+    // Position_Controller 已不再暴露 load_param()，demo 直接按默认参数路径运行。
+    controller_param_loaded_ = true;
+    ROS_INFO("[UavControlDemo] controller param gate opened (no explicit load_param)");
+    return true;
   }
 
   void maybe_start_post_takeoff_mission() {

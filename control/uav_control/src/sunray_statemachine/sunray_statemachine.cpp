@@ -5,6 +5,8 @@ Sunray_StateMachine::Sunray_StateMachine(ros::NodeHandle& nh)
     nh_.param("fsm/enable_offboard_control", enable_offboard_control_, enable_offboard_control_);
     nh_.param("fsm/set_mode_retry_interval_s", set_mode_retry_interval_s_, set_mode_retry_interval_s_);
     nh_.param("fsm/arm_retry_interval_s", arm_retry_interval_s_, arm_retry_interval_s_);
+    nh_.param("fsm/takeoff_height_m", takeoff_height_m_, takeoff_height_m_);
+    nh_.param("fsm/takeoff_max_velocity_mps", takeoff_max_velocity_mps_, takeoff_max_velocity_mps_);
 
     uav_ns_ = resolve_uav_namespace();
     const std::string ns_prefix = uav_ns_.empty() ? std::string("") : ("/" + uav_ns_);
@@ -143,7 +145,8 @@ void Sunray_StateMachine::update() {
 
     switch (current_state_) {
         case SunrayState::TAKEOFF:
-            (void)controller->set_takeoff_mode();
+            (void)controller->set_takeoff_mode(takeoff_height_m_,
+                                               takeoff_max_velocity_mps_);
             break;
         case SunrayState::LAND:
             (void)controller->set_land_mode();

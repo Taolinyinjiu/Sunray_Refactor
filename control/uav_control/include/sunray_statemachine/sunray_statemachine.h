@@ -249,4 +249,8 @@ private:
   double set_mode_retry_interval_s_{1.0};  ///< set_mode 重试间隔（秒）
   double arm_retry_interval_s_{1.0};       ///< arming 重试间隔（秒）
   bool enable_offboard_control_{true};     ///< 是否启用 OFFBOARD/ARM 接管
+
+  // 起飞控制参数（用于对接 Base_Controller::set_takeoff_mode 接口）
+  double takeoff_height_m_{1.5};           ///< 相对起飞高度（m）
+  double takeoff_max_velocity_mps_{0.5};   ///< 起飞最大速度（m/s）
 };

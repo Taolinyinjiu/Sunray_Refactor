@@ -90,6 +90,13 @@ public:
   virtual bool set_px4_attitude(const sensor_msgs::Imu &imu_msg);
 
   /**
+   * @brief 更新 PX4 降落检测器状态
+   * @param land_status
+   * @return true 写入成功。
+   */
+  virtual bool set_px4_land_status(const bool land_status);
+
+  /**
    * @brief 设置控制参考输入（轨迹点）。
    * @param trajectory 期望轨迹点（位置/速度/加速度/yaw 等）。
    * @return true 写入成功。
@@ -162,6 +169,9 @@ protected:
   /** ---------------起飞参数----------------- */
   /** @brief 起飞状态上下文 */
   bool takeoff_initialized_ = false;
+	
+	/** @brief 起飞时的位置 */
+	Eigen::Vector3d home_position_;
 
   /** @brief 起飞期望位置（m）。 */
   Eigen::Vector3d takeoff_expect_position_;
@@ -171,10 +181,15 @@ protected:
 
   /** @brief 计算出来的理论运动时间，小于 @param takeoff_singlecurve_limit_time
    * 则切换为多段曲线拼接式的起飞模式 */
-  double takeoff_singlecurve_limit_time_ = 0.0;
+  double takeoff_singlecurve_limit_time_ = 3.0;
+	
+	double takeoff_singlecurve_time_ = 0.0;
 
   /** @brief 起飞完成判定所需保持时间（s）。 */
   double takeoff_success_time_ = 3.0;
+	
+	/** @brief 起飞开始时间戳。 */
+  ros::Time takeoff_start_time_ = ros::Time(0);
 
   /** @brief 起飞稳定区间开始时间戳。 */
   ros::Time takeoff_holdstart_time_ = ros::Time(0);
@@ -185,6 +200,9 @@ protected:
   /** ---------------降落参数----------------- */
   /** @brief 降落类型 0:基于五次项曲线实现的降落 1:px4.auto_land */
   uint8_t land_type_ = 0;
+	
+	/*** @brief px4传入的降落检测状态 */	
+	bool px4_land_status_ = false;
 
   /** @brief 降落状态上下文 */
   bool land_initialized_ = false;
@@ -193,14 +211,18 @@ protected:
   Eigen::Vector3d land_expect_position_;
 
   /** @brief 降落过程中最大速度 */
-  double land_max_velocity_ = 0.0;
+  double land_max_velocity_ = -0.5;
 
-  /** @brief 计算出来的理论运动时间，小于 @param land_singlecurve_limit_time
-   * 则切换为多段曲线拼接式的降落模式 */
-  double land_singlecurve_limit_time_ = 0.0;
-
+  /** @brief 限制运动时间 */
+  double land_singlecurve_limit_time_ = 3.0;
+	/*** @brief 计算出来的理论运动时间 */
+	double land_singlecurve_time_ = 0.0;
+	
   /** @brief 降落完成判定所需保持时间（s）。 */
   double land_success_time_ = 3.0;
+
+			/** @brief 降落开始时间戳。 */
+  ros::Time land_start_time_ = ros::Time(0);
 
   /** @brief 降落稳定区间开始时间戳。 */
   ros::Time land_holdstart_time_ = ros::Time(0);
