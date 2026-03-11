@@ -213,6 +213,7 @@ ControllerOutput Position_Controller::handle_takeoff_state() {
   }
   /** ---------------计算起飞五次项曲线参数----------------- */
   if (takeoff_singlecurve_time_ > takeoff_singlecurve_limit_time_) {
+
     // 如果曲线用时大于限制时间，则认为是符合要求的,根据曲线参数生成对应的指令
     const auto curve_result = curve::evaluate_quintic_curve(
         start_position, start_velocity, stop_position, stop_velocity,
@@ -303,19 +304,20 @@ ControllerOutput Position_Controller::handle_land_state() {
   }
   /** ---------------计算理论降落速度---------------- */
   // 1. 起点位置和速度
-  Eigen::Vector3d start_position = uav_current_state_.position;
+  Eigen::Vector3d start_position = trajectory_.position;
   Eigen::Vector3d start_velocity;
   start_velocity.setZero();
   // 2. 终点位置和速度
-  Eigen::Vector3d stop_position = land_expect_position_;  //land_expect_position_.z使用的是起飞时记忆的参考地平面
-  stop_position.z() = 0.3;
+  Eigen::Vector3d stop_position =
+      land_expect_position_; // land_expect_position_.z使用的是起飞时记忆的参考地平面
+  // stop_position.z() = 0.3;
   Eigen::Vector3d stop_velocity;
   stop_velocity.setZero();
   stop_velocity.z() = -0.2;
   // 3. 根据当前z轴差值，以及降落过程中的最大速度，计算降落时间
   if (land_singlecurve_time_ == 0.0) {
     // 根据最大速度反推起飞时间
-    double curve_max_velocity = land_max_velocity_;
+    double curve_max_velocity = abs(land_max_velocity_);
     const auto min_duration_ret =
         curve::solve_quintic_min_duration_from_max_speed(
             start_position, stop_position, curve_max_velocity);
@@ -375,45 +377,53 @@ ControllerOutput Position_Controller::handle_land_state() {
   }
   /** ---------------匀速下降阶段----------------- */
   // 当z轴高度到达0.3m时，切换为速度控制，控制z轴速度
-  if (uav_current_state_.position.z() <= 0.3) {
+  if (uav_current_state_.position.z() <= 0.1) {
     // 清除参数
     temp_output.clear_all();
     temp_output.channel_enable(ControllerOutputMask::POSITION);
     temp_output.channel_enable(ControllerOutputMask::VELOCITY);
     // 重新注入参数
     temp_output.position = land_expect_position_;
-    temp_output.position.z() -= 0.2;
+    temp_output.position.z() -= 0.1;
     temp_output.velocity = stop_velocity;
   }
-	/** ---------------检测着陆阶段----------------- */
-  // 检测着陆分为两种方式，一种是根据传入的px4 着陆检测传感器的状态，另一个种是根据三轴速度是否 <-0.1
-	if(px4_land_status_ == true)
-	{
-		// 此为最高的优先级，在该模式下，输出置零
-		temp_output.clear_all();
-		temp_output.channel_enable(ControllerOutputMask::VELOCITY);
-		temp_output.velocity.setZero();
-		temp_output.velocity.z() = -0.2;
-		land_holdkeep_time_ = ros::Time::now();
-		if((land_holdkeep_time_ - land_holdstart_time_).toSec() > land_success_time_)
-		{
-			//切换状态为OFF
-			controller_state_ = ControllerState::OFF;
-		}
-		return temp_output;
-	}
-	if(uav_current_state_.velocity.z() <= -0.1)
-	{
-		land_holdkeep_time_ = ros::Time::now();
-		if(land_holdstart_time_.toSec() < 0.1) // 
-		{
-			return temp_output;
-		}
-		if((land_holdkeep_time_ - land_holdstart_time_).toSec() > land_success_time_)
-		{
-			//切换状态为OFF
-			controller_state_ = ControllerState::OFF;
-		}
+  /** ---------------检测着陆阶段----------------- */
+  // 检测着陆分为两种方式，一种是根据传入的px4
+  // 着陆检测传感器的状态，另一个种是根据三轴速度是否 <-0.1
+  if (px4_land_status_ == true) {
+    // 此为最高的优先级，在该模式下，输出置零
+    temp_output.clear_all();
+    temp_output.channel_enable(ControllerOutputMask::VELOCITY);
+    temp_output.velocity.setZero();
+    temp_output.velocity.z() = -0.2;
+    land_holdkeep_time_ = ros::Time::now();
+    if ((land_holdkeep_time_ - land_holdstart_time_).toSec() >
+        land_success_time_) {
+      // 切换状态为OFF
+      controller_state_ = ControllerState::OFF;
+    }
+    return temp_output;
+  }
+	
+  if ((uav_current_state_.position.z() - land_expect_position_.z()) < 0.1) {
+    land_holdkeep_time_ = ros::Time::now();
+    if (land_holdstart_time_.isZero()) //
+    {
+			land_holdstart_time_ = ros::Time::now();
+      return temp_output;
+    }
+		printf("delta time = %f",(land_holdkeep_time_ - land_holdstart_time_).toSec());
+    if ((land_holdkeep_time_ - land_holdstart_time_).toSec() >
+        land_success_time_) {
+      // 切换状态为OFF
+      controller_state_ = ControllerState::OFF;
+      temp_output.clear_all();
+      temp_output.channel_enable(ControllerOutputMask::VELOCITY);
+      temp_output.velocity.setZero();
+      return temp_output;
+    }
+  }else{
+	land_holdstart_time_ = ros::Time(0);
 	}
 	return temp_output;
 }

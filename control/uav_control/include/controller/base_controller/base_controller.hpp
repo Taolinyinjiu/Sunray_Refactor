@@ -153,10 +153,10 @@ protected:
   bool px4_arm_state_ = false;
 
   /** @brief 误差容限数组，通常为 `{x_tol, y_tol, z_tol}`。 */
-  Eigen::Vector3d error_tolerance_ = Eigen::Vector3d::Zero();
+  Eigen::Vector3d error_tolerance_ = Eigen::Vector3d(0.2,0.2,0.2);
 
   /** @brief 三轴最大速度参数，通常为`x_vel,y_vel,z_vel` */
-  Eigen::Vector3d velocity_max_ = Eigen::Vector3d::Zero();
+  Eigen::Vector3d velocity_max_ = Eigen::Vector3d(2.0,2.0,2.0);
 
   /** ---------------地面参数----------------- */
 
@@ -177,7 +177,7 @@ protected:
   Eigen::Vector3d takeoff_expect_position_;
 
   /** @brief 起飞过程中最大速度 */
-  double takeoff_max_velocity_ = 0.0;
+  double takeoff_max_velocity_ = 0.5;
 
   /** @brief 计算出来的理论运动时间，小于 @param takeoff_singlecurve_limit_time
    * 则切换为多段曲线拼接式的起飞模式 */
