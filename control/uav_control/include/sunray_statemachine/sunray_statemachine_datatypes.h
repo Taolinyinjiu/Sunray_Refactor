@@ -1,5 +1,7 @@
 #pragma once
 
+#include <ros/time.h>
+
 namespace sunray_fsm {
 
 struct SunrayFSM_ParamConfig {
@@ -32,6 +34,14 @@ struct SunrayFSM_ParamConfig {
   double takeoff_height_m{0.6};       // 条件关心
   double takeoff_max_vel_mps{0.5};    // 条件关心
 };
+
+struct OffboardRetryConfig {
+  ros::Time last_set_mode_req_time{};
+  ros::Time last_arm_req_time{};
+  double set_mode_retry_interval_s{1.0};
+  double arm_retry_interval_s{1.0};
+};
+
 
 /**
  * @brief Sunray 状态机主状态集合。

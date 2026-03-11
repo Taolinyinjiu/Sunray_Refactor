@@ -146,7 +146,7 @@ private:
   /** -----------------私有变量---------------------- */
   ros::NodeHandle nh_;        ///< ROS 节点句柄。
   SunrayState current_state_; ///< 当前状态。
-
+	SunrayFSM_ParamConfig param_config_; 	// yaml文件中写入的参数
   /** -----------------px4数据读取与参数管理---------------------- */
   PX4_DataReader px4_data_reader;
   PX4_ParamManager px4_param_manager_;
@@ -156,20 +156,10 @@ private:
   ros::Timer controller_update_timer_;
   double controller_update_hz__;
   uav_control::Sunray_Control_Arbiter arbiter_; ///< 控制输出仲裁与发布层。
-
-  // MAVROS offboard/arming 接管相关
-  std::string uav_ns_;                    ///< 解析出的 UAV 命名空间（如 uav1）
-  ros::ServiceClient arming_client_;      ///< /<uav_ns>/mavros/cmd/arming
-  ros::ServiceClient set_mode_client_;    ///< /<uav_ns>/mavros/set_mode
-  ros::Time last_set_mode_req_time_{};    ///< 最近一次 set_mode 请求时间
-  ros::Time last_arm_req_time_{};         ///< 最近一次 arming 请求时间
-  double set_mode_retry_interval_s_{1.0}; ///< set_mode 重试间隔（秒）
-  double arm_retry_interval_s_{1.0};      ///< arming 重试间隔（秒）
-  bool enable_offboard_control_{true};    ///< 是否启用 OFFBOARD/ARM 接管
-
-  // 起飞控制参数（用于对接 Base_Controller::set_takeoff_mode 接口）
-  double takeoff_height_m_{1.0};         ///< 相对起飞高度（m）
-  double takeoff_max_velocity_mps_{0.5}; ///< 起飞最大速度（m/s）
+  /** -----------------MAVROS offboard/arming 接管相关--------------------- */
+  ros::ServiceClient arming_client_;   ///< /<uav_ns>/mavros/cmd/arming
+  ros::ServiceClient set_mode_client_; ///< /<uav_ns>/mavros/set_mode
+  OffboardRetryConfig px4_offboard_retry_state_;
 };
 
 }; // namespace sunray_fsm
