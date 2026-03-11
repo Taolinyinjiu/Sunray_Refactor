@@ -1,16 +1,14 @@
 #include <ros/ros.h>
-#include <message_filters/subscriber.h>
-#include <message_filters/synchronizer.h>
-#include <message_filters/sync_policies/exact_time.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/TwistStamped.h>
 #include <nav_msgs/Odometry.h>
 #include <signal.h>
 #include "sunray_log.hpp"
 
-typedef message_filters::sync_policies::ExactTime<geometry_msgs::PoseStamped, geometry_msgs::TwistStamped> SyncPolicy;
-
 ros::Publisher mocap_odom_pub;
+geometry_msgs::TwistStamped latest_twist_msg;
+bool has_twist_msg = false;
+bool require_twist = false;
 
 // 中断信号
 void MySigintHandler(int sig) {
@@ -18,8 +16,7 @@ void MySigintHandler(int sig) {
     ros::shutdown();
 }
 
-void SyncCallback(const geometry_msgs::PoseStamped::ConstPtr& pose_msg,
-                  const geometry_msgs::TwistStamped::ConstPtr& twist_msg) {
+void PoseCallback(const geometry_msgs::PoseStamped::ConstPtr& pose_msg) {
 
     nav_msgs::Odometry odom_msg;
 
@@ -36,15 +33,27 @@ void SyncCallback(const geometry_msgs::PoseStamped::ConstPtr& pose_msg,
     odom_msg.pose.pose.orientation.z = pose_msg->pose.orientation.z;
     odom_msg.pose.pose.orientation.w = pose_msg->pose.orientation.w;
 
-    // Twist
-    odom_msg.twist.twist.linear.x = twist_msg->twist.linear.x;
-    odom_msg.twist.twist.linear.y = twist_msg->twist.linear.y;
-    odom_msg.twist.twist.linear.z = twist_msg->twist.linear.z;
-    odom_msg.twist.twist.angular.x = twist_msg->twist.angular.x;
-    odom_msg.twist.twist.angular.y = twist_msg->twist.angular.y;
-    odom_msg.twist.twist.angular.z = twist_msg->twist.angular.z;
+    if (require_twist && !has_twist_msg) {
+        ROS_WARN_THROTTLE(1.0, "No twist message received yet, skip odom publish.");
+        return;
+    }
+
+    if (has_twist_msg) {
+        // Fill with latest twist to avoid strict timestamp sync dependency.
+        odom_msg.twist.twist.linear.x = latest_twist_msg.twist.linear.x;
+        odom_msg.twist.twist.linear.y = latest_twist_msg.twist.linear.y;
+        odom_msg.twist.twist.linear.z = latest_twist_msg.twist.linear.z;
+        odom_msg.twist.twist.angular.x = latest_twist_msg.twist.angular.x;
+        odom_msg.twist.twist.angular.y = latest_twist_msg.twist.angular.y;
+        odom_msg.twist.twist.angular.z = latest_twist_msg.twist.angular.z;
+    }
 
     mocap_odom_pub.publish(odom_msg);
+}
+
+void TwistCallback(const geometry_msgs::TwistStamped::ConstPtr& twist_msg) {
+    latest_twist_msg = *twist_msg;
+    has_twist_msg = true;
 }
 
 int main(int argc, char** argv) {
@@ -52,23 +61,29 @@ int main(int argc, char** argv) {
     ros::init(argc, argv, "mocap_odom_node");
 
     ros::NodeHandle nh;
+    ros::NodeHandle pnh("~");
 
     // 中断信号注册
     signal(SIGINT, MySigintHandler);
 
-    int uav_id = 0;
-    nh.param<int>("uav_id", uav_id, 1);
+    int uav_id = 1;
+    pnh.param<int>("uav_id", uav_id, 1);
 
-    std::string odom_pub_topic = "/uav" + std::to_string(uav_id) + "/sunray/odometry";
+    std::string odom_pub_topic_default = "/uav" + std::to_string(uav_id) + "/sunray/odometry";
+    std::string odom_pub_topic = odom_pub_topic_default;
+    pnh.param<std::string>("odom_topic", odom_pub_topic, odom_pub_topic_default);
     mocap_odom_pub = nh.advertise<nav_msgs::Odometry>(odom_pub_topic, 10);
 
-    std::string pose_sub_topic = "/vrpn_client_node/uav" + std::to_string(uav_id) + "/pose";
-    std::string twist_sub_topic = "/vrpn_client_node/uav" + std::to_string(uav_id) + "/twist";
-    message_filters::Subscriber<geometry_msgs::PoseStamped> mocap_pose_sub(nh, pose_sub_topic, 10);
-    message_filters::Subscriber<geometry_msgs::TwistStamped> mocap_twist_sub(nh, twist_sub_topic, 10);
+    std::string pose_sub_topic_default = "/vrpn_client_node_1/uav" + std::to_string(uav_id) + "/pose";
+    std::string twist_sub_topic_default = "/vrpn_client_node_1/uav" + std::to_string(uav_id) + "/twist";
+    std::string pose_sub_topic = pose_sub_topic_default;
+    std::string twist_sub_topic = twist_sub_topic_default;
+    pnh.param<std::string>("pose_topic", pose_sub_topic, pose_sub_topic_default);
+    pnh.param<std::string>("twist_topic", twist_sub_topic, twist_sub_topic_default);
+    pnh.param<bool>("require_twist", require_twist, false);
 
-    message_filters::Synchronizer<SyncPolicy> sync(SyncPolicy(10), mocap_pose_sub, mocap_twist_sub);
-    sync.registerCallback(boost::bind(&SyncCallback, _1, _2));
+    ros::Subscriber mocap_pose_sub = nh.subscribe<geometry_msgs::PoseStamped>(pose_sub_topic, 100, PoseCallback);
+    ros::Subscriber mocap_twist_sub = nh.subscribe<geometry_msgs::TwistStamped>(twist_sub_topic, 100, TwistCallback);
 
     SUNRAY_INFO("Subscribe pose topic: {}", pose_sub_topic);
     SUNRAY_INFO("Subscribe twist topic: {}", twist_sub_topic);
