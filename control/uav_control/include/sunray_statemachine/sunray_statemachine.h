@@ -91,11 +91,6 @@ private:
   std::string resolve_uav_namespace() const;
 
   /**
-   * @brief MAVROS 状态回调。
-   */
-  void mavros_state_callback(const mavros_msgs::StateConstPtr &msg);
-
-  /**
    * @brief 在飞行相关状态确保 OFFBOARD + ARM。
    * @return true 当前已满足；false 尚未满足。
    */
@@ -143,23 +138,26 @@ private:
    */
   std::shared_ptr<uav_control::Base_Controller> get_controller() const;
 
-  /** -----------------私有变量---------------------- */
-  ros::NodeHandle nh_;        ///< ROS 节点句柄。
-  SunrayState current_state_; ///< 当前状态。
-	SunrayFSM_ParamConfig param_config_; 	// yaml文件中写入的参数
+  /** -----------------基础参数---------------------- */
+  ros::NodeHandle nh_;                 ///< ROS 节点句柄。
+  std::string uav_ns_;                  ///< 无人机命名空间参数
+  SunrayState fsm_current_state_;          ///< 状态机当前状态。
+  SunrayFSM_ParamConfig fsm_param_config_; // yaml文件中写入的参数
+
   /** -----------------px4数据读取与参数管理---------------------- */
-  PX4_DataReader px4_data_reader;
+  PX4_DataReader px4_data_reader_;
   PX4_ParamManager px4_param_manager_;
+
+  /** -----------------MAVROS offboard/arming 接管相关--------------------- */
+  ros::ServiceClient px4_arming_client_;   ///< /<uav_ns>/mavros/cmd/arming
+  ros::ServiceClient px4_set_mode_client_; ///< /<uav_ns>/mavros/set_mode
+  OffboardRetryConfig px4_offboard_retry_state_;
+
   /** -----------------控制器相关--------------------- */
   std::shared_ptr<uav_control::Base_Controller>
-      controller_; ///< 全局唯一控制器实例。
+      sunray_controller_; ///< 全局唯一控制器实例。
   ros::Timer controller_update_timer_;
-  double controller_update_hz__;
   uav_control::Sunray_Control_Arbiter arbiter_; ///< 控制输出仲裁与发布层。
-  /** -----------------MAVROS offboard/arming 接管相关--------------------- */
-  ros::ServiceClient arming_client_;   ///< /<uav_ns>/mavros/cmd/arming
-  ros::ServiceClient set_mode_client_; ///< /<uav_ns>/mavros/set_mode
-  OffboardRetryConfig px4_offboard_retry_state_;
 };
 
-}; // namespace sunray_fsm
+} // namespace sunray_fsm

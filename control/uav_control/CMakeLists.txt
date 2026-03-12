@@ -242,8 +242,7 @@ target_link_libraries(quintic_curve_test_node
 ## Mark executable scripts (Python etc.) for installation
 ## in contrast to setup.py, you can choose the destination
 catkin_install_python(PROGRAMS
-  scripts/load_uav_param.py
-  scripts/load_fsm_param.py
+  scripts/load_param.py
   scripts/gazebo_model_states_to_odom.py
   scripts/gen_fsm_diagram.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}

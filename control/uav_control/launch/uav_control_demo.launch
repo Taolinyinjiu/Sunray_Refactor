@@ -1,24 +1,16 @@
 <launch>
-  <arg name="param_file" default="$(find uav_control)/../../config/sunray-150.yaml" />
+  <arg name="control_config_file" default="$(find uav_control)/config/sunray_control_config.yaml" />
   <arg name="uav_name" default="uav" />
   <arg name="uav_id" default="1" />
-  <arg name="output_yaml" default="/tmp/sunray_uav_param_resolved.yaml" />
-  <arg name="keep_output_yaml" default="true" />
 
-  <!-- 参数兜底：即使 load_uav_param 失败，节点也能解析到 uav_ns -->
-  <param name="/uav_name" value="$(arg uav_name)" />
-  <param name="/uav_id" value="$(arg uav_id)" />
-  <param name="/uav_ns" value="$(arg uav_name)$(arg uav_id)" />
   <!-- 纯控制链路联调时通常不依赖 MAVROS，关闭 OFFBOARD/ARM 自动接管检查 -->
   <param name="/fsm/enable_offboard_control" value="true" />
 
-  <!-- 1) 加载 uav_name/uav_id/uav_ns 以及命名空间参数 -->
-  <include file="$(find uav_control)/launch/load_param.launch">
-    <arg name="param_file" value="$(arg param_file)" />
+  <!-- 1) 加载控制配置参数 -->
+  <include file="$(find uav_control)/launch/load_control_config.launch">
+    <arg name="control_config_file" value="$(arg control_config_file)" />
     <arg name="uav_name" value="$(arg uav_name)" />
     <arg name="uav_id" value="$(arg uav_id)" />
-    <arg name="output_yaml" value="$(arg output_yaml)" />
-    <arg name="keep_output_yaml" value="$(arg keep_output_yaml)" />
   </include>
 
   <!-- 2) Gazebo model_states -> Sunray odom 输入 -->

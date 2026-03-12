@@ -87,4 +87,4 @@ enum class SunrayEvent {
 };
 
 
-}; // namespace sunray_fsm
+} // namespace sunray_fsm
