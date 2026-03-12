@@ -6,6 +6,7 @@
 #include <mavros_msgs/CommandBool.h>
 #include <mavros_msgs/SetMode.h>
 #include <mavros_msgs/State.h>
+#include <nav_msgs/Odometry.h>
 #include <ros/ros.h>
 
 #include <px4_bridge/px4_data_reader.h>
@@ -83,6 +84,7 @@ private:
   bool register_controller(int controller_types);
 
   void controller_update_timer_cb(const ros::TimerEvent &);
+  void external_odom_cb(const nav_msgs::Odometry::ConstPtr &msg);
 
   /**
    * @brief 解析 UAV 命名空间（uav_ns 或 uav_name+uav_id）。
@@ -144,6 +146,11 @@ private:
   SunrayState fsm_current_state_;          ///< 状态机当前状态。
   SunrayFSM_ParamConfig fsm_param_config_; // yaml文件中写入的参数
 
+  /** -----------------里程计相关参数---------------------- */
+  ros::Subscriber external_odom_sub_;
+  uav_control::UAVStateEstimate latest_external_odom_;
+  bool has_external_odom_{false};
+
   /** -----------------px4数据读取与参数管理---------------------- */
   PX4_DataReader px4_data_reader_;
   PX4_ParamManager px4_param_manager_;
@@ -152,6 +159,7 @@ private:
   ros::ServiceClient px4_arming_client_;   ///< /<uav_ns>/mavros/cmd/arming
   ros::ServiceClient px4_set_mode_client_; ///< /<uav_ns>/mavros/set_mode
   OffboardRetryConfig px4_offboard_retry_state_;
+  bool enable_offboard_control_{true};
 
   /** -----------------控制器相关--------------------- */
   std::shared_ptr<uav_control::Base_Controller>

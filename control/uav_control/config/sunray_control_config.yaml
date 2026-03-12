@@ -11,6 +11,8 @@ gravity: 0.98
 controller_types: 0
 # 控制器更新频率
 controller_update_frequency: 100
+# 订阅的里程计话题名称,请注意，该话题名称并不会在订阅过程中再添加任何的前缀或者修改，也就是说，在这里填写的话题名称应该和使用rostopic list查看的一致
+odom_topic_name: "/your/odom/topic"
 # 是否将里程计与px4进行融合
 fuse_odom_to_px4: true
 # 最大倾斜角度(角度制)

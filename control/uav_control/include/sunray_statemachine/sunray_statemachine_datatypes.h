@@ -1,10 +1,12 @@
 #pragma once
 
 #include <ros/time.h>
+#include <string>
 
 namespace sunray_fsm {
 
 struct SunrayFSM_ParamConfig {
+  std::string odom_topic_name{"/uav1/sunray_odom"};
   bool fuse_odom_to_px4{false};
 
   double low_voltage_v{13.2};

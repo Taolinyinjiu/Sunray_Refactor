@@ -17,8 +17,7 @@
 
 #include "controller/base_controller/base_controller.hpp"
 #include "control_data_types/uav_state_estimate.hpp"
-
-enum class SunrayState;
+#include "sunray_statemachine/sunray_statemachine_datatypes.h"
 
 namespace uav_control {
 
@@ -84,7 +83,7 @@ public:
    * @brief 更新状态机状态（用于策略切换，例如紧急态强制接管）。
    * @param state Sunray 主状态。
    */
-  void set_fsm_state(SunrayState state);
+  void set_fsm_state(sunray_fsm::SunrayState state);
 
   /**
    * @brief 更新当前无人机状态估计（用于安全门控和消息生成）。
@@ -205,7 +204,7 @@ private:
 
   Config config_{}; ///< 仲裁参数缓存
   bool initialized_{false}; ///< 初始化完成标志
-  SunrayState fsm_state_{static_cast<SunrayState>(0)}; ///< 当前状态机状态（0 对应 OFF）
+  sunray_fsm::SunrayState fsm_state_{static_cast<sunray_fsm::SunrayState>(0)}; ///< 当前状态机状态（0 对应 OFF）
   UAVStateEstimate current_state_{}; ///< 当前状态估计缓存
   ros::Time last_publish_time_{}; ///< 最近一次发布时刻
   std::string resolved_uav_ns_; ///< 动态解析出的 UAV 命名空间（例如 uav1）

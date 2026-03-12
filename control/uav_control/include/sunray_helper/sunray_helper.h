@@ -8,7 +8,7 @@
 #include <ros/node_handle.h>
 #include <ros/service_client.h>
 #include <control_data_types/uav_state_estimate.hpp>
-
+#include "sunray_statemachine/sunray_statemachine_datatypes.h"
 // 前项定义
 
 class Sunray_Helper {
@@ -90,7 +90,7 @@ public:
   float get_target_thrust();
   // Sunray FSM状态
   // TODO:实现Sunray状态机 状态的数据类型,本质上是强类型枚举
-  uav_control::control_state get_control_state();
+  sunray_fsm::SunrayState get_statemachine_state();
   //
 
 private:
@@ -99,7 +99,7 @@ private:
   //  无人机目标状态缓存
   uav_control::UAVStateEstimate uav_target_;
   // 状态机状态缓存
-  sunray_control::control_state fsm_state_;
+  sunray_fsm::SunrayState fsm_state_;
 
   // 声明与Sunray_FSM相关的订阅者
   // 触发模式相关

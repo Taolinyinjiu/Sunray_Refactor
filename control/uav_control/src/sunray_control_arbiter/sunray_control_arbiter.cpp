@@ -3,8 +3,6 @@
 #include <algorithm>
 #include <cmath>
 
-#include "sunray_statemachine/sunray_statemachine.h"
-
 namespace uav_control {
 namespace {
 std::string trimLeadingSlash(const std::string &ns) {
@@ -85,7 +83,7 @@ bool Sunray_Control_Arbiter::init(ros::NodeHandle &nh) {
   return true;
 }
 
-void Sunray_Control_Arbiter::set_fsm_state(SunrayState state) {
+void Sunray_Control_Arbiter::set_fsm_state(sunray_fsm::SunrayState state) {
   fsm_state_ = state;
 }
 
@@ -177,7 +175,8 @@ bool Sunray_Control_Arbiter::select_candidate(
   }
 
   const ros::Time now = ros::Time::now();
-  const bool emergency_mode = (fsm_state_ == SunrayState::EMERGENCY_LAND);
+  const bool emergency_mode =
+      (fsm_state_ == sunray_fsm::SunrayState::EMERGENCY_LAND);
 
   bool found = false;
   bool best_is_emergency = false;
