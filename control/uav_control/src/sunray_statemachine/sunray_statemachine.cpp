@@ -9,16 +9,101 @@ Sunray_StateMachine::Sunray_StateMachine(ros::NodeHandle &nh)
       px4_data_reader_(nh_), px4_param_manager_(nh_), px4_arming_client_(),
       px4_set_mode_client_(), px4_offboard_retry_state_{},
       enable_offboard_control_(true), sunray_controller_(nullptr),
-      external_odom_sub_(), latest_external_odom_{}, has_external_odom_(false),
-      controller_update_timer_(), arbiter_() {
+      external_odom_sub_(), latest_external_odom_{}, controller_update_timer_(),
+      arbiter_() {
   // 1) 读取 FSM 参数（兼容旧/新 yaml key）
+  nh_.param("uav_name", fsm_param_config_.uav_name, fsm_param_config_.uav_name);
+  nh_.param("uav_id", fsm_param_config_.uav_id, fsm_param_config_.uav_id);
+  nh_.param("mass_kg", fsm_param_config_.mass_kg, fsm_param_config_.mass_kg);
+  nh_.param("gravity", fsm_param_config_.gravity, fsm_param_config_.gravity);
+
+  nh_.param("odom_topic_name", fsm_param_config_.odom_topic_name,
+            fsm_param_config_.odom_topic_name);
+  nh_.param("fuse_odom_to_px4", fsm_param_config_.fuse_odom_to_px4,
+            fsm_param_config_.fuse_odom_to_px4);
+  nh_.param("fuse_odom_frequency", fsm_param_config_.fuse_odom_frequency_hz,
+            fsm_param_config_.fuse_odom_frequency_hz);
+
+  nh_.param("low_voltage", fsm_param_config_.low_voltage_v,
+            fsm_param_config_.low_voltage_v);
+  nh_.param("low_voltage_operate", fsm_param_config_.low_voltage_action,
+            fsm_param_config_.low_voltage_action);
+  nh_.param("control_with_no_rc", fsm_param_config_.control_with_no_rc,
+            fsm_param_config_.control_with_no_rc);
+  nh_.param("lost_with_rc", fsm_param_config_.lost_with_rc_action,
+            fsm_param_config_.lost_with_rc_action);
+  nh_.param("arm_with_code", fsm_param_config_.arm_with_code,
+            fsm_param_config_.arm_with_code);
+  nh_.param("takeoff_with_code", fsm_param_config_.takeoff_with_code,
+            fsm_param_config_.takeoff_with_code);
+  nh_.param("check_flip", fsm_param_config_.check_flip,
+            fsm_param_config_.check_flip);
+
+  nh_.param("electronic_fence/x_max", fsm_param_config_.fence_x_max,
+            fsm_param_config_.fence_x_max);
+  nh_.param("electronic_fence/x_min", fsm_param_config_.fence_x_min,
+            fsm_param_config_.fence_x_min);
+  nh_.param("electronic_fence/y_max", fsm_param_config_.fence_y_max,
+            fsm_param_config_.fence_y_max);
+  nh_.param("electronic_fence/y_min", fsm_param_config_.fence_y_min,
+            fsm_param_config_.fence_y_min);
+  nh_.param("electronic_fence/z_max", fsm_param_config_.fence_z_max,
+            fsm_param_config_.fence_z_max);
+  nh_.param("electronic_fence/z_min", fsm_param_config_.fence_z_min,
+            fsm_param_config_.fence_z_min);
+
+  nh_.param("msg_timeout/odom", fsm_param_config_.timeout_odom_s,
+            fsm_param_config_.timeout_odom_s);
+  nh_.param("msg_timeout/rc", fsm_param_config_.timeout_rc_s,
+            fsm_param_config_.timeout_rc_s);
+  nh_.param("msg_timeout/control_heartbeat",
+            fsm_param_config_.timeout_control_hb_s,
+            fsm_param_config_.timeout_control_hb_s);
+  nh_.param("msg_timeout/imu", fsm_param_config_.timeout_imu_s,
+            fsm_param_config_.timeout_imu_s);
+  nh_.param("msg_timeout/battery", fsm_param_config_.timeout_battery_s,
+            fsm_param_config_.timeout_battery_s);
+
+  nh_.param("error_tolerance/pos_x", fsm_param_config_.error_tolerance_pos_x_m,
+            fsm_param_config_.error_tolerance_pos_x_m);
+  nh_.param("error_tolerance/pos_y", fsm_param_config_.error_tolerance_pos_y_m,
+            fsm_param_config_.error_tolerance_pos_y_m);
+  nh_.param("error_tolerance/pos_z", fsm_param_config_.error_tolerance_pos_z_m,
+            fsm_param_config_.error_tolerance_pos_z_m);
+
+  nh_.param("max_velocity/x_vel", fsm_param_config_.max_velocity_x_mps,
+            fsm_param_config_.max_velocity_x_mps);
+  nh_.param("max_velocity/y_vel", fsm_param_config_.max_velocity_y_mps,
+            fsm_param_config_.max_velocity_y_mps);
+  nh_.param("max_velocity/z_vel", fsm_param_config_.max_velocity_z_mps,
+            fsm_param_config_.max_velocity_z_mps);
+  nh_.param("max_velocity_with_rc/x_vel",
+            fsm_param_config_.max_velocity_with_rc_x_mps,
+            fsm_param_config_.max_velocity_with_rc_x_mps);
+  nh_.param("max_velocity_with_rc/y_vel",
+            fsm_param_config_.max_velocity_with_rc_y_mps,
+            fsm_param_config_.max_velocity_with_rc_y_mps);
+  nh_.param("max_velocity_with_rc/z_vel",
+            fsm_param_config_.max_velocity_with_rc_z_mps,
+            fsm_param_config_.max_velocity_with_rc_z_mps);
+  nh_.param("tilt_angle_max", fsm_param_config_.tilt_angle_max_deg,
+            fsm_param_config_.tilt_angle_max_deg);
+
+  nh_.param("land_type", fsm_param_config_.land_type,
+            fsm_param_config_.land_type);
+  nh_.param("land_max_vel_mps", fsm_param_config_.land_max_vel_mps,
+            fsm_param_config_.land_max_vel_mps);
+  nh_.param("land_max_velocity", fsm_param_config_.land_max_vel_mps,
+            fsm_param_config_.land_max_vel_mps);
+
   nh_.param("controller_type", fsm_param_config_.controller_type,
             fsm_param_config_.controller_type);
   nh_.param("controller_types", fsm_param_config_.controller_type,
             fsm_param_config_.controller_type);
   nh_.param("controller_update_hz", fsm_param_config_.controller_update_hz,
             fsm_param_config_.controller_update_hz);
-  nh_.param("controller_update_frequency", fsm_param_config_.controller_update_hz,
+  nh_.param("controller_update_frequency",
+            fsm_param_config_.controller_update_hz,
             fsm_param_config_.controller_update_hz);
   nh_.param("takeoff_height_m", fsm_param_config_.takeoff_height_m,
             fsm_param_config_.takeoff_height_m);
@@ -40,10 +125,14 @@ Sunray_StateMachine::Sunray_StateMachine(ros::NodeHandle &nh)
             px4_offboard_retry_state_.arm_retry_interval_s,
             px4_offboard_retry_state_.arm_retry_interval_s);
 
-  std::string external_odom_topic =
-      uav_ns_.empty() ? "/sunray_odom_in" : ("/" + uav_ns_ + "/sunray_odom_in");
+  std::string external_odom_topic = fsm_param_config_.odom_topic_name;
+  if (external_odom_topic.empty()) {
+    external_odom_topic = uav_ns_.empty() ? "/sunray_odom_in"
+                                          : ("/" + uav_ns_ + "/sunray_odom_in");
+  }
   nh_.param("/fsm/odom_topic", external_odom_topic, external_odom_topic);
   nh_.param("fsm/odom_topic", external_odom_topic, external_odom_topic);
+  fsm_param_config_.odom_topic_name = external_odom_topic;
 
   // 2) 初始化 MAVROS service client
   const std::string mavros_ns =
@@ -68,10 +157,10 @@ Sunray_StateMachine::Sunray_StateMachine(ros::NodeHandle &nh)
       nh_.createTimer(ros::Duration(1.0 / hz),
                       &Sunray_StateMachine::controller_update_timer_cb, this);
 
-  ROS_INFO(
-      "[SunrayFSM] init done, uav_ns='%s', state=OFF, offboard_gate=%s, odom='%s'",
-      uav_ns_.c_str(), enable_offboard_control_ ? "true" : "false",
-      external_odom_topic.c_str());
+  ROS_INFO("[SunrayFSM] init done, uav_ns='%s', state=OFF, offboard_gate=%s, "
+           "odom='%s'",
+           uav_ns_.c_str(), enable_offboard_control_ ? "true" : "false",
+           external_odom_topic.c_str());
 }
 
 bool Sunray_StateMachine::register_controller(int controller_types) {
@@ -299,37 +388,26 @@ void Sunray_StateMachine::update() {
     return;
   }
 
-  const px4_data_types::SystemState px4_state = px4_data_reader_.get_system_state();
+  const px4_data_types::SystemState px4_state =
+      px4_data_reader_.get_system_state();
   (void)controller->set_px4_arm_state(enable_offboard_control_ ? px4_state.armed
                                                                : true);
 
-  if (has_external_odom_) {
-    (void)controller->set_current_odom(latest_external_odom_);
-  } else if (px4_state.connected) {
-    const px4_data_types::Pose local_pose = px4_data_reader_.get_local_pose();
-    const px4_data_types::Velocity local_velocity =
-        px4_data_reader_.get_local_velocity();
-
-    uav_control::UAVStateEstimate fallback_state;
-    fallback_state.timestamp = ros::Time::now();
-    fallback_state.coordinate_frame =
-        uav_control::UAVStateEstimate::CoordinateFrame::LOCAL;
-    fallback_state.child_frame_id = "body";
-    fallback_state.position = local_pose.position;
-    fallback_state.velocity = local_velocity.linear;
-    fallback_state.bodyrates = local_velocity.angular;
-    fallback_state.orientation = local_pose.orientation;
-    if (fallback_state.orientation.norm() > 1e-9) {
-      fallback_state.orientation.normalize();
-    }
-    if (fallback_state.isValid()) {
-      (void)controller->set_current_odom(fallback_state);
-    }
-  } else {
-    ROS_WARN_THROTTLE(1.0,
-                      "[SunrayFSM] no valid odom source yet (external odom or "
-                      "PX4 local odom)");
+  const ros::Time now = ros::Time::now();
+  const bool external_odom_fresh =
+      latest_external_odom_.isValid() &&
+      !latest_external_odom_.timestamp.isZero() &&
+      (now - latest_external_odom_.timestamp).toSec() <=
+          fsm_param_config_.timeout_odom_s;
+  if (!external_odom_fresh) {
+    ROS_WARN_THROTTLE(
+        1.0,
+        "[SunrayFSM] external odom unavailable or timeout (timeout=%.3fs), "
+        "skip control update",
+        fsm_param_config_.timeout_odom_s);
+    return;
   }
+  (void)controller->set_current_odom(latest_external_odom_);
 
   if (requires_offboard() && !ensure_offboard_and_arm()) {
     ROS_WARN_THROTTLE(
@@ -367,9 +445,9 @@ void Sunray_StateMachine::update() {
     if (fsm_current_state_ == SunrayState::OFF) {
       return;
     }
-    ROS_WARN_THROTTLE(1.0,
-                      "[SunrayFSM] controller produced empty output at state=%s",
-                      to_string(fsm_current_state_));
+    ROS_WARN_THROTTLE(
+        1.0, "[SunrayFSM] controller produced empty output at state=%s",
+        to_string(fsm_current_state_));
     return;
   }
 
@@ -404,7 +482,6 @@ void Sunray_StateMachine::external_odom_cb(
     return;
   }
   latest_external_odom_ = odom_state;
-  has_external_odom_ = true;
 }
 
 std::string Sunray_StateMachine::resolve_uav_namespace() const {
@@ -432,7 +509,6 @@ std::string Sunray_StateMachine::resolve_uav_namespace() const {
   }
   return "";
 }
-
 
 bool Sunray_StateMachine::requires_offboard() const {
   if (!enable_offboard_control_) {
@@ -462,7 +538,8 @@ bool Sunray_StateMachine::ensure_offboard_and_arm() {
     return true;
   }
 
-  const px4_data_types::SystemState px4_state = px4_data_reader_.get_system_state();
+  const px4_data_types::SystemState px4_state =
+      px4_data_reader_.get_system_state();
 
   if (!px4_state.connected) {
     ROS_WARN_THROTTLE(1.0, "[SunrayFSM] PX4 is not connected");

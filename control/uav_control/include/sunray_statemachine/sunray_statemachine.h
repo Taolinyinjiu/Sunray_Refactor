@@ -148,8 +148,13 @@ private:
 
   /** -----------------里程计相关参数---------------------- */
   ros::Subscriber external_odom_sub_;
-  uav_control::UAVStateEstimate latest_external_odom_;
-  bool has_external_odom_{false};
+	uav_control::UAVStateEstimate latest_external_odom_;
+	// 根据fsm_param_config_参数中的fuse_odom_to_px4变量，决定是否将里程计与px4进行同步
+	// 如果里程计有协方差，使用odometry接口，如果没有协方差，使用vision_pose接口
+  ros::Publisher odom_to_px4_vision_pose_pub_;
+	ros::Publisher odom_to_px4_odometry_pub_;
+	// 如果同步的话，与px4同步的频率
+	
 
   /** -----------------px4数据读取与参数管理---------------------- */
   PX4_DataReader px4_data_reader_;

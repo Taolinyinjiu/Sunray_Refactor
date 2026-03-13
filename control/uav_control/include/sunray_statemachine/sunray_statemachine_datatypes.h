@@ -6,8 +6,14 @@
 namespace sunray_fsm {
 
 struct SunrayFSM_ParamConfig {
-  std::string odom_topic_name{"/uav1/sunray_odom"};
+  std::string uav_name{"uav"};
+  int uav_id{1};
+  double mass_kg{0.96};
+  double gravity{0.98};
+
+  std::string odom_topic_name{"/sunray/odom"};
   bool fuse_odom_to_px4{false};
+  double fuse_odom_frequency_hz{50.0};
 
   double low_voltage_v{13.2};
   int low_voltage_action{0};
@@ -29,12 +35,27 @@ struct SunrayFSM_ParamConfig {
   double timeout_imu_s{0.5};
   double timeout_battery_s{0.5};
 
+  double error_tolerance_pos_x_m{0.05};
+  double error_tolerance_pos_y_m{0.05};
+  double error_tolerance_pos_z_m{0.05};
+
+  double max_velocity_x_mps{3.0};
+  double max_velocity_y_mps{3.0};
+  double max_velocity_z_mps{1.0};
+
+  double max_velocity_with_rc_x_mps{1.0};
+  double max_velocity_with_rc_y_mps{1.0};
+  double max_velocity_with_rc_z_mps{1.0};
+
+  double tilt_angle_max_deg{20.0};
+
   int land_type{1};
 
   int controller_type{0};             // 条件关心
   double controller_update_hz{100.0}; // 条件关心
   double takeoff_height_m{0.6};       // 条件关心
   double takeoff_max_vel_mps{0.5};    // 条件关心
+  double land_max_vel_mps{0.5};
 };
 
 struct OffboardRetryConfig {
