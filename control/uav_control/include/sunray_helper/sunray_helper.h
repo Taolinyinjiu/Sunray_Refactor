@@ -38,7 +38,7 @@ public:
   bool set_position_async(Eigen::Vector3d position_);
   bool set_position_block(Eigen::Vector3d position_);
   bool set_position_list_async(std::vector<Eigen::Vector3d> position_list_);
-  bool set_position_list_bolck(std::vector<Eigen::Vector3d> position_list_);
+  bool set_position_list_block(std::vector<Eigen::Vector3d> position_list_);
   // 带有yaw角的位置控制
   bool set_position_async(Eigen::Vector3d position_, float yaw);
   bool set_position_block(Eigen::Vector3d position_, float yaw);
@@ -58,7 +58,7 @@ public:
   // 触发姿态控制
   // 绝对yaw角控制
   bool set_yaw_async(float yaw_);
-  bool set_yaw_bolck(float yaw_);
+  bool set_yaw_block(float yaw_);
   // 相对当前时刻yaw角控制
   bool set_yaw_adjust_async(float adjust_yaw_);
   bool set_yaw_adjust_block(float adjust_yaw_);

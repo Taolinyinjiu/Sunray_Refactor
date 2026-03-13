@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
   ros::Duration(takeoff_wait_s).sleep();
 
   Eigen::Vector3d start_pos = helper.get_uav_position();
-  Eigen::Vector3d forward_pos = start_pos + Eigen::Vector3d(1.0, 0.0, 0.0);
+  Eigen::Vector3d forward_pos = start_pos + Eigen::Vector3d(1.0, 0.0, 0.6);
   ROS_INFO("[SunrayHelperDemo] move forward 1m");
   helper.set_position_async(forward_pos);
   ros::Duration(move_wait_s).sleep();

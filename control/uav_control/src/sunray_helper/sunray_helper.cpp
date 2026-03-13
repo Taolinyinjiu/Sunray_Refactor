@@ -236,7 +236,7 @@ bool Sunray_Helper::set_position_list_async(
   return set_position_async(position_list_.back());
 }
 
-bool Sunray_Helper::set_position_list_bolck(
+bool Sunray_Helper::set_position_list_block(
     std::vector<Eigen::Vector3d> position_list_) {
   if (position_list_.empty()) {
     return false;
@@ -433,7 +433,7 @@ bool Sunray_Helper::set_yaw_async(float yaw_) {
   return true;
 }
 
-bool Sunray_Helper::set_yaw_bolck(float yaw_) {
+bool Sunray_Helper::set_yaw_block(float yaw_) {
   return set_yaw_async(yaw_);
 }
 

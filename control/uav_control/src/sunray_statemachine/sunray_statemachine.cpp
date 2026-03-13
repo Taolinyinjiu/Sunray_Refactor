@@ -455,8 +455,8 @@ void Sunray_StateMachine::update() {
   // 1. 里程计有效
   // 2.时间戳非零
   // 3.当前时间戳减去里程计时间戳小于config中定义的超时限制
+	//       latest_external_odom_.isValid() &&
   const bool external_odom_fresh =
-      latest_external_odom_.isValid() &&
       !latest_external_odom_.timestamp.isZero() &&
       (now - latest_external_odom_.timestamp).toSec() <=
           fsm_param_config_.timeout_odom_s;
@@ -506,6 +506,17 @@ void Sunray_StateMachine::update() {
   }
   // 更新控制器输出量
   const uav_control::ControllerOutput control_output = controller->update();
+  // 控制器完成判定 -> 触发状态机完成事件（用于从 TAKEOFF/LAND/EMERGENCY 自动退出）
+  if (fsm_current_state_ == SunrayState::TAKEOFF &&
+      controller->is_takeoff_completed()) {
+    (void)handle_event(SunrayEvent::TAKEOFF_COMPLETED);
+  } else if (fsm_current_state_ == SunrayState::LAND &&
+             controller->is_land_completed()) {
+    (void)handle_event(SunrayEvent::LAND_COMPLETED);
+  } else if (fsm_current_state_ == SunrayState::EMERGENCY_LAND &&
+             controller->is_emergency_completed()) {
+    (void)handle_event(SunrayEvent::EMERGENCY_COMPLETED);
+  }
   // 有效输出定义为位置、速度、姿态、推力至少有一个是使能的
   const bool has_effective_output =
       control_output.is_channel_enabled(

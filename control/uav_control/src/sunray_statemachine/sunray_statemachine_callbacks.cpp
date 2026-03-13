@@ -3,6 +3,7 @@
 #include <cmath>
 
 namespace {
+// 从四元数中得到yaw角 
 double yaw_from_quat(const Eigen::Quaterniond &q) {
   const double siny_cosp = 2.0 * (q.w() * q.z() + q.x() * q.y());
   const double cosy_cosp = 1.0 - 2.0 * (q.y() * q.y() + q.z() * q.z());
@@ -12,50 +13,62 @@ double yaw_from_quat(const Eigen::Quaterniond &q) {
 
 namespace sunray_fsm {
 
+// 起飞话题 回调
 void Sunray_StateMachine::takeoff_cmd_cb(
     const uav_control::TakeoffCmd::ConstPtr &msg) {
   if (!msg) {
     return;
   }
+	// 首先如果消息传入值大于0就使用消息传入值，消息传入值小于或者等于零就使用配置文件中的值
   if (msg->takeoff_relative_height > 0.0) {
     fsm_param_config_.takeoff_height_m = msg->takeoff_relative_height;
   }
   if (msg->takeoff_max_velocity > 0.0) {
     fsm_param_config_.takeoff_max_vel_mps = msg->takeoff_max_velocity;
   }
+	// 触发起飞请求
   (void)handle_event(SunrayEvent::TAKEOFF_REQUEST);
 }
 
+// 起飞服务
 bool Sunray_StateMachine::takeoff_srv_cb(
     uav_control::Takeoff::Request &req,
     uav_control::Takeoff::Response &res) {
-  if (req.takeoff_relative_height > 0.0) {
+  	
+	// 首先如果消息传入值大于0就使用消息传入值，消息传入值小于或者等于零就使用配置文件中的值
+	if (req.takeoff_relative_height > 0.0) {
     fsm_param_config_.takeoff_height_m = req.takeoff_relative_height;
   }
   if (req.takeoff_max_velocity > 0.0) {
     fsm_param_config_.takeoff_max_vel_mps = req.takeoff_max_velocity;
   }
-
-  const bool ok = handle_event(SunrayEvent::TAKEOFF_REQUEST);
-  res.accepted = ok;
-  res.message = ok ? "takeoff request accepted" : "takeoff request rejected";
-  return true;
+	// 返回状态切换的结果
+  const bool result = handle_event(SunrayEvent::TAKEOFF_REQUEST);
+  res.accepted = result;
+  res.message = result ? "takeoff request accepted" : "takeoff request rejected";
+  // 这里返回的true主要是根据ros的惯例，返回的并不是这个服务所要实现的请求是否被实现，而是这个请求是否被正常接受到了
+	return true;
 }
 
+// 降落话题 回调
 void Sunray_StateMachine::land_cmd_cb(
     const uav_control::LandCmd::ConstPtr &msg) {
   if (!msg) {
     return;
   }
+	// 如果降落类型非负,就使用传递的降落类型，反之则使用默认值
   if (msg->land_type >= 0) {
     fsm_param_config_.land_type = msg->land_type;
   }
+	// 如果传递的最大降落速度非负，就使用传递的最大降落速度
   if (msg->land_max_velocity > 0.0) {
     fsm_param_config_.land_max_vel_mps = msg->land_max_velocity;
   }
+	// 触发降落请求
   (void)handle_event(SunrayEvent::LAND_REQUEST);
 }
 
+// 降落服务
 bool Sunray_StateMachine::land_srv_cb(uav_control::Land::Request &req,
                                       uav_control::Land::Response &res) {
   if (req.land_type >= 0) {
