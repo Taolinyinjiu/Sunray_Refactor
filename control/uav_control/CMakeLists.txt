@@ -128,6 +128,7 @@ catkin_package(
     uav_controller_lib
     sunray_control_arbiter_lib
     sunray_fsm_lib
+    sunray_helper_lib
   CATKIN_DEPENDS message_runtime roscpp std_msgs nav_msgs geometry_msgs sensor_msgs mavros_msgs gazebo_msgs px4_bridge
 #  DEPENDS system_lib
 )
@@ -203,17 +204,34 @@ target_link_libraries(sunray_fsm_lib
 )
 add_dependencies(sunray_fsm_lib ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
-add_executable(uav_control_demo_node
-  src/demo/uav_control_demo_node.cpp
+add_library(sunray_helper_lib
+  src/sunray_helper/sunray_helper.cpp
 )
-target_link_libraries(uav_control_demo_node
-  uav_controller_lib
-  sunray_fsm_lib
-  sunray_control_arbiter_lib
-  control_data_types_lib
+target_link_libraries(sunray_helper_lib
   ${catkin_LIBRARIES}
   ${EIGEN3_LIBRARIES}
 )
+add_dependencies(sunray_helper_lib ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
+add_executable(sunray_helper_demo_node
+  src/demo/sunray_helper_demo_node.cpp
+)
+target_link_libraries(sunray_helper_demo_node
+  sunray_helper_lib
+  ${catkin_LIBRARIES}
+  ${EIGEN3_LIBRARIES}
+)
+add_dependencies(sunray_helper_demo_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
+add_executable(sunray_fsm_node
+  src/demo/sunray_fsm_node.cpp
+)
+target_link_libraries(sunray_fsm_node
+  sunray_fsm_lib
+  ${catkin_LIBRARIES}
+  ${EIGEN3_LIBRARIES}
+)
+add_dependencies(sunray_fsm_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 add_executable(quintic_curve_test_node
   src/demo/quintic_curve_test_node.cpp

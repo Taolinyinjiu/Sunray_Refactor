@@ -13,7 +13,7 @@ controller_types: 0
 # 控制器更新频率(Hz)
 controller_update_frequency: 100
 # 订阅的里程计话题名称,请注意，该话题名称并不会在订阅过程中再添加任何的前缀或者修改，也就是说，在这里填写的话题名称应该和使用rostopic list查看的一致
-odom_topic_name: "/sunray/odom"
+odom_topic_name: "/uav1/sunray_odom_in"
 # 是否将里程计与px4进行融合
 fuse_odom_to_px4: true
 # 里程计融合类型 0：vision_pose 1:odometry 建议在当前里程计没有协方差时选择vision_pose

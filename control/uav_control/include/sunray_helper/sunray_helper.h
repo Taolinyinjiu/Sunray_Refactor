@@ -9,6 +9,10 @@
 #include <ros/service_client.h>
 #include <control_data_types/uav_state_estimate.hpp>
 #include "sunray_statemachine/sunray_statemachine_datatypes.h"
+#include <memory>
+#include <string>
+#include <utility>
+#include <vector>
 // 前项定义
 
 class Sunray_Helper {
@@ -94,6 +98,13 @@ public:
   //
 
 private:
+  ros::NodeHandle nh_;
+  ros::NodeHandle ctrl_nh_;
+  std::string uav_ns_;
+
+  std::unique_ptr<PX4_DataReader> px4_data_reader_;
+  bool px4_reader_ready_{false};
+
   // 里程计消息缓存
   uav_control::UAVStateEstimate uav_odometry_;
   //  无人机目标状态缓存
@@ -101,17 +112,17 @@ private:
   // 状态机状态缓存
   sunray_fsm::SunrayState fsm_state_;
 
-  // 声明与Sunray_FSM相关的订阅者
+  // 声明与Sunray_FSM相关的发布者
   // 触发模式相关
-  ros::Subscriber takeoff_sub_;
-  ros::Subscriber land_sub_;
-  ros::Subscriber return_sub_;
+  ros::Publisher takeoff_pub_;
+  ros::Publisher land_pub_;
+  ros::Publisher return_pub_;
   // 控制接口相关
-  ros::Subscriber position_cmd_sub_;
-  ros::Subscriber velocity_cmd_sub_;
-  ros::Subscriber attitude_cmd_sub_;
-  ros::Subscriber trajectory_cmd_sub_;
-  ros::Subscriber complex_cmd_sub_;
+  ros::Publisher position_cmd_pub_;
+  ros::Publisher velocity_cmd_pub_;
+  ros::Publisher attitude_cmd_pub_;
+  ros::Publisher trajectory_cmd_pub_;
+  ros::Publisher complex_cmd_pub_;
   // 服务客户端(通过服务实现的控制，都是阻塞的方式)
   ros::ServiceClient takeoff_client_;
   ros::ServiceClient land_client_;

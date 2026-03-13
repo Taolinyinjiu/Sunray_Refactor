@@ -480,6 +480,12 @@ void Sunray_StateMachine::update() {
   // TODO：无论里程计是否有效，都需要注入px4的姿态
   // (void)controller->set_px4_attitude(const sensor_msgs::Imu &imu_msg);
 
+  // 进入飞行相关状态后，持续确保 OFFBOARD + ARM
+  if (requires_offboard() && !ensure_offboard_and_arm()) {
+    ROS_WARN_THROTTLE(
+        1.0, "[SunrayFSM] waiting for OFFBOARD/ARM before effective control");
+  }
+
   // 根据当前状态机的状态，进行不同的操作
   switch (fsm_current_state_) {
   case SunrayState::TAKEOFF:
