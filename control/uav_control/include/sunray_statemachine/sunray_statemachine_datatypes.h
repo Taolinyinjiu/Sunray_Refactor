@@ -6,13 +6,18 @@
 namespace sunray_fsm {
 
 struct SunrayFSM_ParamConfig {
+// -------------------基本参数-----------------------
   std::string uav_name{"uav"};
   int uav_id{1};
   double mass_kg{0.96};
   double gravity{0.98};
 
+  int controller_type{0};             
+	double controller_update_hz{100.0}; 
+
   std::string odom_topic_name{"/sunray/odom"};
   bool fuse_odom_to_px4{false};
+	int fuse_odom_type{0};
   double fuse_odom_frequency_hz{50.0};
 
   double low_voltage_v{13.2};
@@ -51,8 +56,7 @@ struct SunrayFSM_ParamConfig {
 
   int land_type{1};
 
-  int controller_type{0};             // 条件关心
-  double controller_update_hz{100.0}; // 条件关心
+
   double takeoff_height_m{0.6};       // 条件关心
   double takeoff_max_vel_mps{0.5};    // 条件关心
   double land_max_vel_mps{0.5};

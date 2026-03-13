@@ -14,6 +14,7 @@ find_package(PythonInterp REQUIRED)
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 find_package(catkin REQUIRED COMPONENTS
+  message_generation
   roscpp
   std_msgs
   nav_msgs
@@ -54,18 +55,27 @@ find_package(catkin REQUIRED COMPONENTS
 ##   * add every package in MSG_DEP_SET to generate_messages(DEPENDENCIES ...)
 
 ## Generate messages in the 'msg' folder
-# add_message_files(
-#   FILES
-#   Message1.msg
-#   Message2.msg
-# )
+add_message_files(
+  FILES
+  AttitudeCmd.msg
+  BspLine.msg
+  ComplexCmd.msg
+  LandCmd.msg
+  PositionCmd.msg
+  ReturnHomeCmd.msg
+  TakeoffCmd.msg
+  TrajectoryCmd.msg
+  VelocityCmd.msg
+)
 
 ## Generate services in the 'srv' folder
-# add_service_files(
-#   FILES
-#   Service1.srv
-#   Service2.srv
-# )
+add_service_files(
+  FILES
+  Takeoff.srv
+  Land.srv
+  ReturnHome.srv
+  PositionRequest.srv
+)
 
 ## Generate actions in the 'action' folder
 # add_action_files(
@@ -75,10 +85,11 @@ find_package(catkin REQUIRED COMPONENTS
 # )
 
 ## Generate added messages and services with any dependencies listed here
-# generate_messages(
-#   DEPENDENCIES
-#   std_msgs  # Or other packages containing msgs
-# )
+generate_messages(
+  DEPENDENCIES
+  std_msgs
+  geometry_msgs
+)
 
 ################################################
 ## Declare ROS dynamic reconfigure parameters ##
@@ -117,7 +128,7 @@ catkin_package(
     uav_controller_lib
     sunray_control_arbiter_lib
     sunray_fsm_lib
-  CATKIN_DEPENDS roscpp std_msgs nav_msgs geometry_msgs sensor_msgs mavros_msgs gazebo_msgs px4_bridge
+  CATKIN_DEPENDS message_runtime roscpp std_msgs nav_msgs geometry_msgs sensor_msgs mavros_msgs gazebo_msgs px4_bridge
 #  DEPENDS system_lib
 )
 
@@ -181,6 +192,7 @@ target_link_libraries(uav_controller_lib
 
 add_library(sunray_fsm_lib
   src/sunray_statemachine/sunray_statemachine.cpp
+  src/sunray_statemachine/sunray_statemachine_callbacks.cpp
 )
 target_link_libraries(sunray_fsm_lib
   uav_controller_lib
@@ -189,6 +201,7 @@ target_link_libraries(sunray_fsm_lib
   ${catkin_LIBRARIES}
   ${EIGEN3_LIBRARIES}
 )
+add_dependencies(sunray_fsm_lib ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 add_executable(uav_control_demo_node
   src/demo/uav_control_demo_node.cpp

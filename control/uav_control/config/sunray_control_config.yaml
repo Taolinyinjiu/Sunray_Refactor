@@ -10,12 +10,14 @@ mass_kg: 0.96
 gravity: 0.98
 # 控制器类型 0:px4_position_controller 1:px4_velocity_controller 2:sunray_attitude_controller 3:rl_raptor_controller
 controller_types: 0
-# 控制器更新频率
+# 控制器更新频率(Hz)
 controller_update_frequency: 100
 # 订阅的里程计话题名称,请注意，该话题名称并不会在订阅过程中再添加任何的前缀或者修改，也就是说，在这里填写的话题名称应该和使用rostopic list查看的一致
 odom_topic_name: "/sunray/odom"
 # 是否将里程计与px4进行融合
 fuse_odom_to_px4: true
+# 里程计融合类型 0：vision_pose 1:odometry 建议在当前里程计没有协方差时选择vision_pose
+fust_odom_type: 0
 # 融合的频率(建议设定在30-50Hz之间，如果链路富裕可以提高到80-100)
 fuse_odom_frequency: 50
 # -------------------保护参数-----------------------
@@ -31,17 +33,17 @@ lost_with_rc: 1
 arm_with_code: true
 # 是否允许代码起飞
 takeoff_with_code: true
-# 是否进行倾倒检测
+# 是否进行倾倒检测：当无人机姿态发生大幅度反转时上锁无人机
 check_flip: false
-# 指定降落模式 0：px4.auto_land 1:code to land
-land_type: 1
-# 是否启用倾翻上锁：当无人机姿态发生大幅度反转时上锁无人机
-check_flip: true
+# 最大倾斜角度(角度制)
+tilt_angle_max: 20
 # -------------------起飞降落参数-----------------------
 # 相对当前位置的起飞高度(米)
 takeoff_relative_height: 0.6
 # 起飞过程中的最大速度(m/s)
 takeoff_max_velocity: 0.5
+# 指定降落模式 0：px4.auto_land 1:code to land
+land_type: 1
 # 降落过程中的最大速度
 land_max_velocity: 0.5
 # -------------------电子围栏参数-----------------------
@@ -79,8 +81,7 @@ max_velocity_with_rc:
   x_vel: 1.0
   y_vel: 1.0
   z_vel: 1.0
-# 最大倾斜角度(角度制)
-tilt_angle_max: 20
+
 
 # -------------------控制器参数-----------------------
 # -----------px4_position_controller----------------
