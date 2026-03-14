@@ -362,6 +362,11 @@ ControllerState Base_Controller::get_controller_state() const {
   return controller_state_;
 }
 
+const uav_control::TrajectoryPoint &Base_Controller::get_trajectory_reference()
+    const {
+  return trajectory_;
+}
+
 bool Base_Controller::has_home_position() const {
   return home_position_initialized_;
 }

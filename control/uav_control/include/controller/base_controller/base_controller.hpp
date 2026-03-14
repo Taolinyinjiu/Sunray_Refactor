@@ -148,6 +148,12 @@ public:
   virtual ControllerState get_controller_state() const;
 
   /**
+   * @brief 获取当前锁存的参考轨迹点。
+   * @return 当前参考轨迹点。
+   */
+  virtual const uav_control::TrajectoryPoint &get_trajectory_reference() const;
+
+  /**
    * @brief 是否已经锁存起飞 home 点。
    * @return true 已锁存；false 尚未锁存。
    */

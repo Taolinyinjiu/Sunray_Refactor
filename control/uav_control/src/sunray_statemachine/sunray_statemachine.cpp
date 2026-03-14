@@ -679,6 +679,7 @@ void Sunray_StateMachine::update_slow() {
   bool request_land_after_return = false;
   bool auto_land_requested = false;
   bool auto_land_completed = false;
+  bool position_completed = false;
   bool trajectory_completed = false;
   double timeout_odom_s = 0.0;
   uint8_t expired_source_id = 0U;
@@ -704,6 +705,11 @@ void Sunray_StateMachine::update_slow() {
     if (fsm_current_state_ == SunrayState::RETURN &&
         is_return_target_reached_locked()) {
       request_return_completed = true;
+    }
+
+    if (fsm_current_state_ == SunrayState::POSITION_CONTROL &&
+        is_position_target_reached_locked()) {
+      position_completed = true;
     }
 
     if (land_after_return_pending_ && fsm_current_state_ == SunrayState::HOVER &&
@@ -824,6 +830,8 @@ void Sunray_StateMachine::update_slow() {
     (void)handle_event(SunrayEvent::LAND_COMPLETED);
   } else if (emergency_completed) {
     (void)handle_event(SunrayEvent::EMERGENCY_COMPLETED);
+  } else if (position_completed) {
+    (void)handle_event(SunrayEvent::POSITION_COMPLETED);
   } else if (trajectory_completed) {
     (void)handle_event(SunrayEvent::TRAJECTORY_COMPLETED);
   }
@@ -1495,6 +1503,30 @@ bool Sunray_StateMachine::is_return_target_reached_locked() const {
 
   const Eigen::Vector3d position_error =
       current_state.position - active_return_target_ref.position;
+  return std::abs(position_error.x()) <= fsm_param_config_.error_tolerance_pos_x_m &&
+         std::abs(position_error.y()) <= fsm_param_config_.error_tolerance_pos_y_m &&
+         std::abs(position_error.z()) <= fsm_param_config_.error_tolerance_pos_z_m;
+}
+
+bool Sunray_StateMachine::is_position_target_reached_locked() const {
+  if (!sunray_controller_) {
+    return false;
+  }
+
+  const uav_control::UAVStateEstimate &current_state =
+      sunray_controller_->get_current_state();
+  if (!current_state.isValid()) {
+    return false;
+  }
+
+  const uav_control::TrajectoryPointReference target_ref(
+      sunray_controller_->get_trajectory_reference());
+  if (!target_ref.is_field_enabled(
+          uav_control::TrajectoryPointReference::Field::POSITION)) {
+    return false;
+  }
+
+  const Eigen::Vector3d position_error = current_state.position - target_ref.position;
   return std::abs(position_error.x()) <= fsm_param_config_.error_tolerance_pos_x_m &&
          std::abs(position_error.y()) <= fsm_param_config_.error_tolerance_pos_y_m &&
          std::abs(position_error.z()) <= fsm_param_config_.error_tolerance_pos_z_m;

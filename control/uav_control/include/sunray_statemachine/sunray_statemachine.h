@@ -128,6 +128,7 @@ private:
   bool requires_offboard_locked() const;
   bool should_use_px4_auto_land_locked() const;
   bool build_return_target_locked(uav_control::TrajectoryPoint *target);
+  bool is_position_target_reached_locked() const;
   bool is_return_target_reached_locked() const;
   void publish_fsm_state();
 		// 控制器更新函数，包含（控制器里程计注入+控制器期望位置更新+控制器输出量更新）
