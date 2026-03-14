@@ -489,6 +489,10 @@ bool Sunray_StateMachine::resolve_next_state_locked(
     break;
 
   case SunrayState::POSITION_CONTROL:
+    if (event == SunrayEvent::ENTER_POSITION_CONTROL) {
+      *next_state = SunrayState::POSITION_CONTROL;
+      return true;
+    }
     if (event == SunrayEvent::POSITION_COMPLETED) {
       *next_state = SunrayState::HOVER;
       return true;
@@ -509,6 +513,10 @@ bool Sunray_StateMachine::resolve_next_state_locked(
     break;
 
   case SunrayState::VELOCITY_CONTROL:
+    if (event == SunrayEvent::ENTER_VELOCITY_CONTROL) {
+      *next_state = SunrayState::VELOCITY_CONTROL;
+      return true;
+    }
     if (event == SunrayEvent::VELOCITY_COMPLETED) {
       *next_state = SunrayState::HOVER;
       return true;
@@ -529,6 +537,10 @@ bool Sunray_StateMachine::resolve_next_state_locked(
     break;
 
   case SunrayState::ATTITUDE_CONTROL:
+    if (event == SunrayEvent::ENTER_ATTITUDE_CONTROL) {
+      *next_state = SunrayState::ATTITUDE_CONTROL;
+      return true;
+    }
     if (event == SunrayEvent::ATTITUDE_COMPLETED) {
       *next_state = SunrayState::HOVER;
       return true;
@@ -549,6 +561,10 @@ bool Sunray_StateMachine::resolve_next_state_locked(
     break;
 
   case SunrayState::COMPLEX_CONTROL:
+    if (event == SunrayEvent::ENTER_COMPLEX_CONTROL) {
+      *next_state = SunrayState::COMPLEX_CONTROL;
+      return true;
+    }
     if (event == SunrayEvent::COMPLEX_COMPLETED) {
       *next_state = SunrayState::HOVER;
       return true;
@@ -569,6 +585,10 @@ bool Sunray_StateMachine::resolve_next_state_locked(
     break;
 
   case SunrayState::TRAJECTORY_CONTROL:
+    if (event == SunrayEvent::ENTER_TRAJECTORY_CONTROL) {
+      *next_state = SunrayState::TRAJECTORY_CONTROL;
+      return true;
+    }
     if (event == SunrayEvent::TRAJECTORY_COMPLETED) {
       *next_state = SunrayState::HOVER;
       return true;
@@ -731,6 +751,22 @@ void Sunray_StateMachine::update_slow() {
   }
 
   if (request_return_completed) {
+    Eigen::Vector3d current_position = Eigen::Vector3d::Zero();
+    Eigen::Vector3d target_position = Eigen::Vector3d::Zero();
+    {
+      std::lock_guard<std::mutex> lock(fsm_mutex_);
+      if (sunray_controller_) {
+        current_position = sunray_controller_->get_current_state().position;
+      }
+      const uav_control::TrajectoryPointReference active_return_target_ref(
+          active_return_target_);
+      target_position = active_return_target_ref.position;
+    }
+    ROS_INFO(
+        "[SunrayFSM] RETURN completed: current_odom=(%.3f, %.3f, %.3f) "
+        "target=(%.3f, %.3f, %.3f)",
+        current_position.x(), current_position.y(), current_position.z(),
+        target_position.x(), target_position.y(), target_position.z());
     const bool completed = handle_event(SunrayEvent::RETURN_COMPLETED);
     if (completed) {
       std::lock_guard<std::mutex> lock(fsm_mutex_);
@@ -1419,6 +1455,26 @@ bool Sunray_StateMachine::build_return_target_locked(
     target_ref.set_yaw(target_yaw);
   }
   *target = target_ref.toRosMessage();
+
+  if (return_use_takeoff_homepoint_) {
+    const Eigen::Vector3d &home_position = sunray_controller_->get_home_position();
+    ROS_INFO(
+        "[SunrayFSM] build RETURN target using homepoint: "
+        "current_odom=(%.3f, %.3f, %.3f) home=(%.3f, %.3f, %.3f) "
+        "return_target=(%.3f, %.3f, %.3f)",
+        current_state.position.x(), current_state.position.y(),
+        current_state.position.z(), home_position.x(), home_position.y(),
+        home_position.z(), target_position.x(), target_position.y(),
+        target_position.z());
+  } else {
+    ROS_INFO(
+        "[SunrayFSM] build RETURN target using explicit target: "
+        "current_odom=(%.3f, %.3f, %.3f) return_target=(%.3f, %.3f, %.3f)",
+        current_state.position.x(), current_state.position.y(),
+        current_state.position.z(), target_position.x(), target_position.y(),
+        target_position.z());
+  }
+
   return true;
 }
 

@@ -89,6 +89,15 @@ bool Base_Controller::set_land_mode() {
   if (land_expect_position_.z() == uav_current_state_.position.z()) {
     land_type_ = 1;
   }
+
+  ROS_INFO(
+      "[Base_Controller] enter LAND: current_odom=(%.3f, %.3f, %.3f) "
+      "ground_z=%.3f land_expect=(%.3f, %.3f, %.3f) land_type=%u",
+      uav_current_state_.position.x(), uav_current_state_.position.y(),
+      uav_current_state_.position.z(), ground_reference_z_,
+      land_expect_position_.x(), land_expect_position_.y(),
+      land_expect_position_.z(), static_cast<unsigned>(land_type_));
+
   // 请注意，这里我们没有回退到land_type =
   // 0的实现，因为我们认为，当触发了auto_land后，整个使用场景实际上并不能够稳定的使用基于起飞高度和五次项曲线的降落模式
   land_initialized_ = false;

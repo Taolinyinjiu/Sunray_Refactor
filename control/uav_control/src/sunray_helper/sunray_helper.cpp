@@ -265,6 +265,12 @@ bool Sunray_Helper::wait_for_position_reached(
     const Eigen::Vector3d current_position = get_uav_position();
     if ((current_position - target_position).norm() <=
         position_reached_tolerance_m_) {
+      ROS_INFO(
+          "[Sunray_Helper] PX4 position reached: current=(%.3f, %.3f, %.3f) "
+          "target=(%.3f, %.3f, %.3f) tol=%.3f",
+          current_position.x(), current_position.y(), current_position.z(),
+          target_position.x(), target_position.y(), target_position.z(),
+          position_reached_tolerance_m_);
       return true;
     }
     rate.sleep();
@@ -299,6 +305,13 @@ bool Sunray_Helper::wait_for_landed(double timeout_s) {
         px4_data_reader_->get_system_state();
     if (system_state.landed_state == px4_data_types::LandedState::kOnGround ||
         !system_state.armed) {
+      const Eigen::Vector3d current_position = get_uav_position();
+      ROS_INFO(
+          "[Sunray_Helper] PX4 landed detected: current=(%.3f, %.3f, %.3f) "
+          "armed=%d landed_state=%d",
+          current_position.x(), current_position.y(), current_position.z(),
+          static_cast<int>(system_state.armed),
+          static_cast<int>(system_state.landed_state));
       return true;
     }
     rate.sleep();
