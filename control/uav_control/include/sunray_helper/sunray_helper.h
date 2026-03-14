@@ -7,9 +7,12 @@
 #include <px4_bridge/px4_param_manager.h>
 #include <ros/node_handle.h>
 #include <ros/service_client.h>
+#include <ros/subscriber.h>
+#include <std_msgs/UInt8.h>
 #include <control_data_types/uav_state_estimate.hpp>
 #include "sunray_statemachine/sunray_statemachine_datatypes.h"
 #include <memory>
+#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -29,11 +32,15 @@ public:
   bool takeoff_async();
   bool takeoff_block();
   // 触发降落
-  bool land_async();
-  bool land_block();
+  bool land_async(int land_type = 0, double land_max_velocity = 0.0);
+  bool land_block(int land_type = 0, double land_max_velocity = 0.0);
 	// 触发返航
-  bool return_async();
-  bool return_block();
+	  bool return_async();
+	  bool return_block();
+  bool return_async(Eigen::Vector3d target_position, bool yaw_ctrl = false,
+                    double yaw = 0.0, double land_max_velocity = 0.0);
+  bool return_block(Eigen::Vector3d target_position, bool yaw_ctrl = false,
+                    double yaw = 0.0, double land_max_velocity = 0.0);
   // 触发位置控制
   bool set_position_async(Eigen::Vector3d position_);
   bool set_position_block(Eigen::Vector3d position_);
@@ -98,19 +105,34 @@ public:
   //
 
 private:
+  void set_cached_fsm_state(sunray_fsm::SunrayState state);
+  void fsm_state_cb(const std_msgs::UInt8::ConstPtr &msg);
+  bool wait_for_fsm_state(sunray_fsm::SunrayState expected_state,
+                          double timeout_s);
+  bool wait_for_position_reached(const Eigen::Vector3d &target_position,
+                                 double timeout_s);
+  bool wait_for_landed(double timeout_s);
+
   ros::NodeHandle nh_;
   ros::NodeHandle ctrl_nh_;
   std::string uav_ns_;
 
   std::unique_ptr<PX4_DataReader> px4_data_reader_;
   bool px4_reader_ready_{false};
+  double takeoff_wait_timeout_s_{12.0};
+  double position_reached_tolerance_m_{0.1};
+  double block_wait_timeout_s_{10.0};
+  double land_wait_timeout_s_{20.0};
+  double wait_poll_hz_{20.0};
 
   // 里程计消息缓存
   uav_control::UAVStateEstimate uav_odometry_;
   //  无人机目标状态缓存
   uav_control::UAVStateEstimate uav_target_;
   // 状态机状态缓存
-  sunray_fsm::SunrayState fsm_state_;
+  mutable std::mutex fsm_state_mutex_;
+  sunray_fsm::SunrayState fsm_state_{sunray_fsm::SunrayState::OFF};
+  bool fsm_state_received_{false};
 
   // 声明与Sunray_FSM相关的发布者
   // 触发模式相关
@@ -123,6 +145,7 @@ private:
   ros::Publisher attitude_cmd_pub_;
   ros::Publisher trajectory_cmd_pub_;
   ros::Publisher complex_cmd_pub_;
+  ros::Subscriber fsm_state_sub_;
   // 服务客户端(通过服务实现的控制，都是阻塞的方式)
   ros::ServiceClient takeoff_client_;
   ros::ServiceClient land_client_;

@@ -8,8 +8,10 @@
 #include <mavros_msgs/CommandBool.h>
 #include <mavros_msgs/SetMode.h>
 #include <mavros_msgs/State.h>
+#include <geometry_msgs/Point.h>
 #include <nav_msgs/Odometry.h>
 #include <ros/ros.h>
+#include <std_msgs/UInt8.h>
 
 #include <uav_control/AttitudeCmd.h>
 #include <uav_control/ComplexCmd.h>
@@ -63,10 +65,20 @@ public:
   bool handle_event(SunrayEvent event);
 
   /**
-   * @brief 状态机周期更新函数。
-   * @note 按当前状态调用控制器的 takeoff/land/emergency_land/update。
+   * @brief 低频监督更新函数。
+   * @note 负责事件消费、健康检查、完成判定与 OFFBOARD/ARM 监督。
    */
   void update();
+
+  /**
+   * @brief 低频监督更新函数。
+   */
+  void update_slow();
+
+  /**
+   * @brief 获取低频监督循环频率。
+   */
+  double get_supervisor_update_hz() const;
 
   /**
    * @brief 获取当前状态。
@@ -97,9 +109,26 @@ private:
    * @note 状态机所有状态共享同一个控制器对象，以避免多控制器状态不一致问题。
    */
   bool register_controller(int controller_types);
-	// 控制器更新函数，包含（控制器里程计注入+控制器期望位置更新+控制器输出量更新）
+  bool queue_event(SunrayEvent event);
+  bool resolve_next_state_locked(SunrayEvent event,
+                                 SunrayState *next_state) const;
+  bool transition_to_locked(SunrayState next_state);
+  bool apply_state_entry_action_locked(SunrayState next_state);
+  void process_pending_events();
+  bool has_fresh_external_odom_locked(const ros::Time &now) const;
+  bool check_health_preflight_locked() const;
+  bool check_health_locked() const;
+  bool validate_offstage_odometry_source_locked() const;
+  bool can_takeoff_locked() const;
+  bool requires_offboard_locked() const;
+  bool should_use_px4_auto_land_locked() const;
+  bool build_return_target_locked(uav_control::TrajectoryPoint *target);
+  bool is_return_target_reached_locked() const;
+  void publish_fsm_state();
+		// 控制器更新函数，包含（控制器里程计注入+控制器期望位置更新+控制器输出量更新）
   void controller_update_timer_cb(const ros::TimerEvent &);
-	// 里程计向px4融合函数，包含（根据里程计类型选择通道向px4融合）
+  void update_fast();
+		// 里程计向px4融合函数，包含（根据里程计类型选择通道向px4融合）
   void odom_fuse_timer_cb(const ros::TimerEvent &);
   void external_odom_cb(const nav_msgs::Odometry::ConstPtr &msg);
   void publish_external_odom_to_px4();
@@ -131,6 +160,7 @@ private:
    * @return true 当前已满足；false 尚未满足。# 
    */
   bool ensure_offboard_and_arm();
+  bool ensure_auto_land_mode();
 
   /**
    * @brief 当前状态是否需要飞控处于 OFFBOARD/ARM。
@@ -219,14 +249,24 @@ private:
 	ros::Subscriber complex_cmd_sub_;
 	
 	/** -----------------------服务提供者--------------------- */
-	ros::ServiceServer takeoff_srv_;
-	ros::ServiceServer land_srv_;
-	ros::ServiceServer return_srv_;
-	ros::ServiceServer position_srv_;
-	
-	// 加把锁防止同时触发
-	std::mutex event_mutex_;
-	std::deque<SunrayEvent> pending_events_;
+  ros::ServiceServer takeoff_srv_;
+  ros::ServiceServer land_srv_;
+  ros::ServiceServer return_srv_;
+  ros::ServiceServer position_srv_;
+  ros::Publisher fsm_state_pub_;
+
+			// 事件队列只在回调线程写入，由低频监督循环消费。
+			std::mutex event_mutex_;
+		std::deque<SunrayEvent> pending_events_;
+    mutable std::mutex fsm_mutex_;
+    bool return_use_takeoff_homepoint_{true};
+    geometry_msgs::Point return_target_position_{};
+    bool return_target_yaw_ctrl_{false};
+    double return_target_yaw_{0.0};
+    uav_control::TrajectoryPoint active_return_target_{};
+    bool active_return_target_valid_{false};
+    bool land_after_return_pending_{false};
+    ros::Time return_hover_start_time_{};
 };
 
 } // namespace sunray_fsm

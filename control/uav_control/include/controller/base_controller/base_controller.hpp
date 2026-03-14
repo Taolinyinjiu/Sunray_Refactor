@@ -69,6 +69,34 @@ public:
   virtual bool set_emergency_mode(void);
 
   /**
+   * @brief 切换到地面待机模式。
+   * @return true 切换成功；false 当前状态或输入不允许。
+   */
+  virtual bool set_off_mode(void);
+
+  /**
+   * @brief 配置降落策略参数。
+   * @param land_type 降落类型，0 为代码控制降落，1 为 PX4 AUTO.LAND。
+   * @param land_max_velocity 降落过程最大速度，单位 m/s。
+   * @return true 参数写入成功。
+   */
+  virtual bool configure_landing(uint8_t land_type, double land_max_velocity);
+
+  /**
+   * @brief 切换到悬停保持模式。
+   * @return true 切换成功；false 当前状态或输入不允许。
+   * @details 默认实现会锁存当前位置为保持点，并切换到 `HOVER`。
+   */
+  virtual bool set_hover_mode(void);
+
+  /**
+   * @brief 切换到轨迹/运动控制模式。
+   * @return true 切换成功；false 当前状态或参考输入不允许。
+   * @details 默认实现要求已存在有效轨迹参考，并切换到 `MOVE`。
+   */
+  virtual bool set_move_mode(void);
+
+  /**
    * @brief 更新无人机当前状态估计（里程计侧）。
    * @param current_state 当前状态估计。
    * @return true 写入成功。
@@ -108,6 +136,24 @@ public:
    * @return 当前控制器状态。
    */
   virtual ControllerState get_controller_state() const;
+
+  /**
+   * @brief 是否已经锁存起飞 home 点。
+   * @return true 已锁存；false 尚未锁存。
+   */
+  virtual bool has_home_position() const;
+
+  /**
+   * @brief 获取锁存的起飞 home 点。
+   * @return home 点位置。
+   */
+  virtual const Eigen::Vector3d &get_home_position() const;
+
+  /**
+   * @brief 当前降落策略是否要求切 PX4 AUTO.LAND。
+   * @return true 需要 PX4 自动降落；false 使用代码控制降落。
+   */
+  virtual bool should_use_px4_auto_land() const;
 
   /**
    * @brief 判定起飞任务是否完成。
@@ -165,6 +211,9 @@ protected:
 
   /** @brief 地面参考高度是否已初始化。 */
   bool ground_reference_initialized_ = false;
+
+  /** @brief 起飞 home 点是否已锁存。 */
+  bool home_position_initialized_ = false;
 
   /** ---------------起飞参数----------------- */
   /** @brief 起飞状态上下文 */

@@ -1,6 +1,7 @@
 #include "controller/base_controller/base_controller.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 namespace uav_control {
 
@@ -24,8 +25,9 @@ bool Base_Controller::set_takeoff_mode(double relative_takeoff_height,
   
 	// 刷新home位置
 	home_position_ = uav_current_state_.position;
-	
-	// 更新起飞最大速度
+  home_position_initialized_ = true;
+
+		// 更新起飞最大速度
   takeoff_max_velocity_ = max_takeoff_velocity;
 
   // 进入起飞流程时刷新地面参考高度，供后续降落目标使用。
@@ -107,6 +109,59 @@ bool Base_Controller::set_emergency_mode() {
     return false;
   }
   controller_state_ = ControllerState::EMERGENCY_LAND;
+  return true;
+}
+
+bool Base_Controller::set_off_mode() {
+  if (!uav_current_state_.isValid()) {
+    return false;
+  }
+
+  trajectory_.clear_all();
+  trajectory_.set_position(uav_current_state_.position);
+  controller_state_ = ControllerState::OFF;
+  return true;
+}
+
+bool Base_Controller::configure_landing(uint8_t land_type,
+                                        double land_max_velocity) {
+  land_type_ = (land_type == 0U) ? 0U : 1U;
+  land_max_velocity_ = (land_max_velocity > 0.0) ? -land_max_velocity
+                                                 : land_max_velocity;
+  if (std::abs(land_max_velocity_) < 1e-6) {
+    land_max_velocity_ = -0.5;
+  }
+  return true;
+}
+
+bool Base_Controller::set_hover_mode() {
+  if (!uav_current_state_.isValid()) {
+    return false;
+  }
+
+  if (controller_state_ == ControllerState::OFF ||
+      controller_state_ == ControllerState::UNDEFINED) {
+    return false;
+  }
+
+  trajectory_.clear_all();
+  trajectory_.set_position(uav_current_state_.position);
+  controller_state_ = ControllerState::HOVER;
+  return true;
+}
+
+bool Base_Controller::set_move_mode() {
+  if (controller_state_ == ControllerState::OFF ||
+      controller_state_ == ControllerState::UNDEFINED) {
+    return false;
+  }
+
+  if (trajectory_.valid_mask ==
+      static_cast<uint32_t>(TrajectoryPoint::ValidMask::UNDEFINED)) {
+    return false;
+  }
+
+  controller_state_ = ControllerState::MOVE;
   return true;
 }
 
@@ -207,6 +262,18 @@ bool Base_Controller::set_trajectory(const TrajectoryPoint &trajectory) {
  */
 ControllerState Base_Controller::get_controller_state() const {
   return controller_state_;
+}
+
+bool Base_Controller::has_home_position() const {
+  return home_position_initialized_;
+}
+
+const Eigen::Vector3d &Base_Controller::get_home_position() const {
+  return home_position_;
+}
+
+bool Base_Controller::should_use_px4_auto_land() const {
+  return land_type_ == 1U;
 }
 
 /**
