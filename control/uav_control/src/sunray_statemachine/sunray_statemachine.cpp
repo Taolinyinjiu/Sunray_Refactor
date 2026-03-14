@@ -859,6 +859,8 @@ void Sunray_StateMachine::update_fast() {
 
     fsm_state = fsm_current_state_;
     (void)controller->set_px4_arm_state(px4_state.armed);
+    (void)controller->set_px4_land_status(
+        px4_state.landed_state == px4_data_types::LandedState::kOnGround);
     external_odom_fresh = has_fresh_external_odom_locked(ros::Time::now());
     auto_land_requested = should_use_px4_auto_land_locked();
     if (external_odom_fresh) {

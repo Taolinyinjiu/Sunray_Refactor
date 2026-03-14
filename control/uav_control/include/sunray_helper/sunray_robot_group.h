@@ -6,6 +6,7 @@
 #include <uav_control/PositionRequest.h>
 #include <uav_control/ReturnHome.h>
 #include <uav_control/Takeoff.h>
+#include <uav_control/Trajectory.h>
 
 #include <Eigen/Dense>
 #include <ros/ros.h>
@@ -213,37 +214,25 @@ public:
   }
 
   Sunray_TaskHandle move_to(const Eigen::Vector3d &position) {
-    uav_control::PositionRequest srv;
-    srv.request.target_position.x = position.x();
-    srv.request.target_position.y = position.y();
-    srv.request.target_position.z = position.z();
-    srv.request.yaw_ctrl = false;
-    srv.request.yaw = 0.0;
-    const bool dispatched = dispatch_request(&context_->position_client, &srv);
+    const bool dispatched = context_->helper->set_position_async(position);
     const std::shared_ptr<Context> context = context_;
     return Sunray_TaskHandle(
         "move_to", dispatched,
-        [context, position]() {
-          return wait_for_position(context, position,
-                                   context->move_wait_timeout_s, "move_to");
+        [context]() {
+          return wait_for_state(context, sunray_fsm::SunrayState::HOVER,
+                                context->move_wait_timeout_s, "move_to");
         });
   }
 
   Sunray_TaskHandle move_to(const Eigen::Vector3d &position, double yaw) {
-    uav_control::PositionRequest srv;
-    srv.request.target_position.x = position.x();
-    srv.request.target_position.y = position.y();
-    srv.request.target_position.z = position.z();
-    srv.request.yaw_ctrl = true;
-    srv.request.yaw = yaw;
-    const bool dispatched = dispatch_request(&context_->position_client, &srv);
+    const bool dispatched = context_->helper->set_position_async(position, yaw);
     const std::shared_ptr<Context> context = context_;
     return Sunray_TaskHandle(
         "move_to_with_yaw", dispatched,
-        [context, position]() {
-          return wait_for_position(context, position,
-                                   context->move_wait_timeout_s,
-                                   "move_to_with_yaw");
+        [context]() {
+          return wait_for_state(context, sunray_fsm::SunrayState::HOVER,
+                                context->move_wait_timeout_s,
+                                "move_to_with_yaw");
         });
   }
 
@@ -285,6 +274,20 @@ public:
         [context]() {
           return wait_for_state(context, sunray_fsm::SunrayState::OFF,
                                 context->return_wait_timeout_s, "return_to");
+        });
+  }
+
+  Sunray_TaskHandle follow_trajectory(const uav_control::Trajectory &trajectory,
+                                      double timeout_s) {
+    const bool dispatched = context_->helper->set_trajectory_async(trajectory);
+    const std::shared_ptr<Context> context = context_;
+    const double effective_timeout =
+        (timeout_s > 0.0) ? timeout_s : context->move_wait_timeout_s;
+    return Sunray_TaskHandle(
+        "follow_trajectory", dispatched,
+        [context, effective_timeout]() {
+          return wait_for_state(context, sunray_fsm::SunrayState::HOVER,
+                                effective_timeout, "follow_trajectory");
         });
   }
 

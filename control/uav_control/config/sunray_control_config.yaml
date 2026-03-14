@@ -99,9 +99,9 @@ msg_timeout:
   battery: 0.5
 # -------------------位置误差容许参数-----------------------
 error_tolerance:
-  pos_x: 0.05
-  pos_y: 0.05
-  pos_z: 0.05
+  pos_x: 0.2
+  pos_y: 0.2
+  pos_z: 0.2
 # -------------------飞行速度参数-----------------------
 # 最大飞行速度(m/s)
 max_velocity:
@@ -142,7 +142,7 @@ sunray_attitude_controller:
   hover_percent: 0.37
   pxy_int_max: 10.0
   pz_int_max: 10.0
-  Kp_xy: 3.0
+  Kp_xy: 3.
   Kp_z: 3.0
   Kv_xy: 3.0
   Kv_z: 3.0

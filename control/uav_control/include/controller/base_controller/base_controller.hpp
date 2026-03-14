@@ -311,6 +311,36 @@ protected:
   /** @brief 降落稳定区间最近保持时间戳。 */
   ros::Time land_holdkeep_time_ = ros::Time(0);
 
+  /** @brief 降落阶段锁存的偏航角（rad）。 */
+  double land_yaw_ = 0.0;
+
+  /** @brief 末段降落的 XY 速度控制比例系数。 */
+  double land_xy_kp_ = 1.0;
+
+  /** @brief 末段降落的 XY 最大修正速度（m/s）。 */
+  double land_max_velocity_xy_mps_ = 0.5;
+
+  /** @brief 低速触地判定的速度阈值（m/s）。 */
+  double land_touchdown_velocity_threshold_mps_ = 0.1;
+
+  /** @brief 低速触地判定所需持续时间（s）。 */
+  double land_touchdown_velocity_hold_time_s_ = 1.0;
+
+  /** @brief 启用低速触地判定的近地高度阈值（m）。 */
+  double land_touchdown_height_threshold_m_ = 0.15;
+
+  /** @brief 检测到触地后继续下压的速度（m/s）。 */
+  double land_touchdown_downpress_speed_mps_ = 0.2;
+
+  /** @brief 检测到触地后继续下压的持续时间（s）。 */
+  double land_touchdown_downpress_time_s_ = 1.0;
+
+  /** @brief “近地低速”开始时间戳。 */
+  ros::Time land_low_velocity_start_time_ = ros::Time(0);
+
+  /** @brief 首次判定触地的时间戳。 */
+  ros::Time land_touchdown_detected_time_ = ros::Time(0);
+
   /** ---------------运动参数----------------- */
   /** @brief 当前控制参考轨迹点。 */
   uav_control::TrajectoryPoint trajectory_;

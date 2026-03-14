@@ -82,13 +82,6 @@ bool Base_Controller::set_land_mode() {
   } else {
     land_expect_position_.z() = uav_current_state_.position.z();
   }
-  // 如果上一阶段最后的结果是land_expect_position_.z() ==
-  // uav_current_state_.position.z();
-  // 说明当前可能存在负阶段降落,也就是降落点低于起飞点,这时候由于降落是位置的,因此需要使用另一套参考逻辑
-  // 这里直接使用auto_land进行简化测试
-  if (land_expect_position_.z() == uav_current_state_.position.z()) {
-    land_type_ = 1;
-  }
 
   ROS_INFO(
       "[Base_Controller] enter LAND: current_odom=(%.3f, %.3f, %.3f) "
@@ -98,11 +91,13 @@ bool Base_Controller::set_land_mode() {
       land_expect_position_.x(), land_expect_position_.y(),
       land_expect_position_.z(), static_cast<unsigned>(land_type_));
 
-  // 请注意，这里我们没有回退到land_type =
-  // 0的实现，因为我们认为，当触发了auto_land后，整个使用场景实际上并不能够稳定的使用基于起飞高度和五次项曲线的降落模式
+  // 降落类型仅保留“按配置/请求显式选择”的语义，不再因为高度参考退化而
+  // 自动强制切到 AUTO.LAND；这样可以稳定复用代码侧末段降落逻辑。
   land_initialized_ = false;
   land_holdstart_time_ = ros::Time(0);
   land_holdkeep_time_ = ros::Time(0);
+  land_low_velocity_start_time_ = ros::Time(0);
+  land_touchdown_detected_time_ = ros::Time(0);
   controller_state_ = ControllerState::LAND;
   return true;
 }
