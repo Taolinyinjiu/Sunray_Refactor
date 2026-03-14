@@ -153,6 +153,7 @@ Sunray_StateMachine::Sunray_StateMachine(ros::NodeHandle &nh)
   cfg_nh.param("max_velocity_with_rc/z_vel",
                fsm_param_config_.max_velocity_with_rc_z_mps,
                fsm_param_config_.max_velocity_with_rc_z_mps);
+  load_control_source_policies(cfg_nh);
 
   // 2) 初始化 MAVROS service client
   const std::string mavros_ns =
@@ -187,26 +188,18 @@ Sunray_StateMachine::Sunray_StateMachine(ros::NodeHandle &nh)
   
 	// 5) 发布对应控制接口(先占位置)
   // 话题订阅
-  takeoff_cmd_sub_ = ctrl_nh_.subscribe(
-      "takeoff_cmd", 10, &Sunray_StateMachine::takeoff_cmd_cb, this);
-  land_cmd_sub_ = ctrl_nh_.subscribe("land_cmd", 10,
-                                     &Sunray_StateMachine::land_cmd_cb, this);
-  return_cmd_sub_ = ctrl_nh_.subscribe(
-      "return_cmd", 10, &Sunray_StateMachine::return_cmd_cb, this);
-  position_cmd_sub_ = ctrl_nh_.subscribe(
-      "position_cmd", 10, &Sunray_StateMachine::position_cmd_cb, this);
-	// adve	
-  velocity_cmd_sub_ = ctrl_nh_.subscribe(
-      "velocity_cmd", 10, &Sunray_StateMachine::velocity_cmd_cb, this);
-
-  attitude_cmd_sub_ = ctrl_nh_.subscribe(
-      "attitude_cmd", 10, &Sunray_StateMachine::attitude_cmd_cb, this);
-
-  trajectory_cmd_sub_ = ctrl_nh_.subscribe(
-      "trajectory_cmd", 10, &Sunray_StateMachine::trajectory_cmd_cb, this);
-
-  complex_cmd_sub_ = ctrl_nh_.subscribe(
-      "complex_cmd", 10, &Sunray_StateMachine::complex_cmd_cb, this);
+  velocity_cmd_envelope_sub_ = ctrl_nh_.subscribe(
+      "velocity_cmd_envelope", 10,
+      &Sunray_StateMachine::velocity_cmd_envelope_cb, this);
+  attitude_cmd_envelope_sub_ = ctrl_nh_.subscribe(
+      "attitude_cmd_envelope", 10,
+      &Sunray_StateMachine::attitude_cmd_envelope_cb, this);
+  trajectory_envelope_sub_ = ctrl_nh_.subscribe(
+      "trajectory_envelope", 10,
+      &Sunray_StateMachine::trajectory_envelope_cb, this);
+  complex_cmd_envelope_sub_ = ctrl_nh_.subscribe(
+      "complex_cmd_envelope", 10,
+      &Sunray_StateMachine::complex_cmd_envelope_cb, this);
 
   // 服务
   takeoff_srv_ = ctrl_nh_.advertiseService(
@@ -223,6 +216,131 @@ Sunray_StateMachine::Sunray_StateMachine(ros::NodeHandle &nh)
 	// 
 		ROS_INFO("[SunrayFSM] init done, uav_ns='%s', state=OFF, odom='%s'",
            uav_ns_.c_str(), fsm_param_config_.odom_topic_name.c_str());
+}
+
+void Sunray_StateMachine::load_control_source_policies(ros::NodeHandle &cfg_nh) {
+  control_source_policies_.clear();
+
+  ControlSourcePolicy default_policy;
+  cfg_nh.param("control_sources/default/priority", default_policy.priority, 0);
+  cfg_nh.param("control_sources/default/timeout", default_policy.timeout_s,
+               fsm_param_config_.timeout_control_hb_s);
+  control_source_policies_[uav_control::ControlMeta::SOURCE_UNSPECIFIED] =
+      default_policy;
+
+  const auto load_policy = [&](uint8_t source_id, const std::string &name,
+                               int default_priority,
+                               double default_timeout_s) {
+    ControlSourcePolicy policy;
+    cfg_nh.param("control_sources/" + name + "/priority", policy.priority,
+                 default_priority);
+    cfg_nh.param("control_sources/" + name + "/timeout", policy.timeout_s,
+                 default_timeout_s);
+    control_source_policies_[source_id] = policy;
+  };
+
+  load_policy(uav_control::ControlMeta::SOURCE_API, "api", 20,
+              fsm_param_config_.timeout_control_hb_s);
+  load_policy(uav_control::ControlMeta::SOURCE_MISSION, "mission", 50,
+              fsm_param_config_.timeout_control_hb_s);
+  load_policy(uav_control::ControlMeta::SOURCE_PLANNER, "planner", 40,
+              fsm_param_config_.timeout_control_hb_s);
+  load_policy(uav_control::ControlMeta::SOURCE_RC, "rc", 100,
+              fsm_param_config_.timeout_control_hb_s);
+  load_policy(uav_control::ControlMeta::SOURCE_SAFETY, "safety", 255,
+              fsm_param_config_.timeout_control_hb_s);
+}
+
+bool Sunray_StateMachine::is_active_control_source_expired_locked(
+    const ros::Time &now) const {
+  if (!active_control_source_.valid || active_control_source_.timeout_s <= 0.0 ||
+      active_control_source_.last_update_time.isZero()) {
+    return false;
+  }
+  return (now - active_control_source_.last_update_time).toSec() >
+         active_control_source_.timeout_s;
+}
+
+void Sunray_StateMachine::clear_active_control_source_locked() {
+  active_control_source_ = ActiveControlSource();
+}
+
+bool Sunray_StateMachine::accept_control_meta_locked(
+    const uav_control::ControlMeta &meta, SunrayState requested_state,
+    ros::Time *stamp, double *timeout_s, int *priority, std::string *reason) {
+  const ros::Time now = ros::Time::now();
+  if (is_active_control_source_expired_locked(now)) {
+    clear_active_control_source_locked();
+  }
+
+  const ros::Time resolved_stamp = meta.header.stamp.isZero()
+                                       ? now
+                                       : meta.header.stamp;
+  const auto default_it = control_source_policies_.find(
+      uav_control::ControlMeta::SOURCE_UNSPECIFIED);
+  const ControlSourcePolicy default_policy =
+      (default_it != control_source_policies_.end())
+          ? default_it->second
+          : ControlSourcePolicy();
+  const auto policy_it = control_source_policies_.find(meta.source_id);
+  const ControlSourcePolicy policy =
+      (policy_it != control_source_policies_.end()) ? policy_it->second
+                                                    : default_policy;
+  const double resolved_timeout_s =
+      (meta.timeout.toSec() > 0.0) ? meta.timeout.toSec() : policy.timeout_s;
+
+  if (stamp) {
+    *stamp = resolved_stamp;
+  }
+  if (timeout_s) {
+    *timeout_s = resolved_timeout_s;
+  }
+  if (priority) {
+    *priority = policy.priority;
+  }
+
+  if (!active_control_source_.valid) {
+    return true;
+  }
+
+  if (meta.source_id == active_control_source_.source_id) {
+    if (!meta.replace_same_source) {
+      if (reason) {
+        *reason = "same source replacement disabled";
+      }
+      return false;
+    }
+    if (meta.sequence_id != 0U && active_control_source_.sequence_id != 0U &&
+        meta.sequence_id < active_control_source_.sequence_id) {
+      if (reason) {
+        *reason = "stale sequence id";
+      }
+      return false;
+    }
+    return true;
+  }
+
+  if (policy.priority > active_control_source_.priority && meta.allow_preempt) {
+    return true;
+  }
+
+  if (reason) {
+    *reason = "blocked by active higher-priority control source";
+  }
+  (void)requested_state;
+  return false;
+}
+
+void Sunray_StateMachine::update_active_control_source_locked(
+    const uav_control::ControlMeta &meta, SunrayState requested_state,
+    const ros::Time &stamp, double timeout_s, int priority) {
+  active_control_source_.valid = true;
+  active_control_source_.source_id = meta.source_id;
+  active_control_source_.sequence_id = meta.sequence_id;
+  active_control_source_.priority = priority;
+  active_control_source_.last_update_time = stamp;
+  active_control_source_.timeout_s = timeout_s;
+  active_control_source_.control_state = requested_state;
 }
 
 bool Sunray_StateMachine::register_controller(int controller_types) {
@@ -536,11 +654,15 @@ void Sunray_StateMachine::update_slow() {
 
   bool request_emergency = false;
   bool report_odom_timeout = false;
+  bool report_control_source_timeout = false;
   bool request_return_completed = false;
   bool request_land_after_return = false;
   bool auto_land_requested = false;
   bool auto_land_completed = false;
+  bool trajectory_completed = false;
   double timeout_odom_s = 0.0;
+  uint8_t expired_source_id = 0U;
+  double expired_timeout_s = 0.0;
   const ros::Time now = ros::Time::now();
   const px4_data_types::SystemState px4_state =
       px4_data_reader_.get_system_state();
@@ -580,6 +702,13 @@ void Sunray_StateMachine::update_slow() {
         auto_land_completed = true;
       }
     }
+
+    if (is_active_control_source_expired_locked(now)) {
+      report_control_source_timeout = true;
+      expired_source_id = active_control_source_.source_id;
+      expired_timeout_s = active_control_source_.timeout_s;
+      clear_active_control_source_locked();
+    }
   }
 
   if (report_odom_timeout) {
@@ -588,6 +717,13 @@ void Sunray_StateMachine::update_slow() {
         "[SunrayFSM] external odom unavailable or timeout (timeout=%.3fs), "
         "queue EMERGENCY",
         timeout_odom_s);
+  }
+
+  if (report_control_source_timeout) {
+    ROS_WARN_THROTTLE(
+        1.0,
+        "[SunrayFSM] high-rate control source timeout: source=%u timeout=%.3fs",
+        static_cast<unsigned>(expired_source_id), expired_timeout_s);
   }
 
   if (request_emergency) {
@@ -632,17 +768,19 @@ void Sunray_StateMachine::update_slow() {
   {
     std::lock_guard<std::mutex> lock(fsm_mutex_);
     fsm_state = fsm_current_state_;
-    if (sunray_controller_) {
-      if (fsm_state == SunrayState::TAKEOFF) {
-        takeoff_completed = sunray_controller_->is_takeoff_completed();
-      } else if (fsm_state == SunrayState::LAND) {
-        land_completed = auto_land_completed ||
-                         sunray_controller_->is_land_completed();
-      } else if (fsm_state == SunrayState::EMERGENCY_LAND) {
-        emergency_completed = sunray_controller_->is_emergency_completed();
-      }
-    }
-  }
+	    if (sunray_controller_) {
+	      if (fsm_state == SunrayState::TAKEOFF) {
+	        takeoff_completed = sunray_controller_->is_takeoff_completed();
+	      } else if (fsm_state == SunrayState::LAND) {
+	        land_completed = auto_land_completed ||
+	                         sunray_controller_->is_land_completed();
+	      } else if (fsm_state == SunrayState::EMERGENCY_LAND) {
+	        emergency_completed = sunray_controller_->is_emergency_completed();
+	      } else if (fsm_state == SunrayState::TRAJECTORY_CONTROL) {
+	        trajectory_completed = sunray_controller_->is_trajectory_completed();
+	      }
+	    }
+	  }
 
   if (takeoff_completed) {
     (void)handle_event(SunrayEvent::TAKEOFF_COMPLETED);
@@ -650,6 +788,8 @@ void Sunray_StateMachine::update_slow() {
     (void)handle_event(SunrayEvent::LAND_COMPLETED);
   } else if (emergency_completed) {
     (void)handle_event(SunrayEvent::EMERGENCY_COMPLETED);
+  } else if (trajectory_completed) {
+    (void)handle_event(SunrayEvent::TRAJECTORY_COMPLETED);
   }
 
   publish_fsm_state();
@@ -1164,6 +1304,7 @@ bool Sunray_StateMachine::apply_state_entry_action_locked(
 
   switch (next_state) {
   case SunrayState::TAKEOFF:
+    clear_active_control_source_locked();
     active_return_target_valid_ = false;
     land_after_return_pending_ = false;
     return_hover_start_time_ = ros::Time(0);
@@ -1171,6 +1312,7 @@ bool Sunray_StateMachine::apply_state_entry_action_locked(
         fsm_param_config_.takeoff_height_m,
         fsm_param_config_.takeoff_max_vel_mps);
   case SunrayState::LAND:
+    clear_active_control_source_locked();
     active_return_target_valid_ = false;
     land_after_return_pending_ = false;
     return_hover_start_time_ = ros::Time(0);
@@ -1179,14 +1321,17 @@ bool Sunray_StateMachine::apply_state_entry_action_locked(
         fsm_param_config_.land_max_vel_mps);
     return sunray_controller_->set_land_mode();
   case SunrayState::EMERGENCY_LAND:
+    clear_active_control_source_locked();
     active_return_target_valid_ = false;
     land_after_return_pending_ = false;
     return_hover_start_time_ = ros::Time(0);
     return sunray_controller_->set_emergency_mode();
   case SunrayState::HOVER:
+    clear_active_control_source_locked();
     active_return_target_valid_ = false;
     return sunray_controller_->set_hover_mode();
   case SunrayState::RETURN: {
+    clear_active_control_source_locked();
     active_return_target_valid_ = false;
     land_after_return_pending_ = false;
     return_hover_start_time_ = ros::Time(0);
@@ -1213,6 +1358,7 @@ bool Sunray_StateMachine::apply_state_entry_action_locked(
              "yet");
     return false;
   case SunrayState::OFF:
+    clear_active_control_source_locked();
     active_return_target_valid_ = false;
     land_after_return_pending_ = false;
     return_hover_start_time_ = ros::Time(0);
@@ -1266,18 +1412,22 @@ bool Sunray_StateMachine::build_return_target_locked(
     has_yaw = true;
   }
 
-  target->clear_all();
-  target->set_position(target_position);
+  uav_control::TrajectoryPointReference target_ref;
+  target_ref.clear_all();
+  target_ref.set_position(target_position);
   if (has_yaw) {
-    target->set_yaw(target_yaw);
+    target_ref.set_yaw(target_yaw);
   }
+  *target = target_ref.toRosMessage();
   return true;
 }
 
 bool Sunray_StateMachine::is_return_target_reached_locked() const {
+  const uav_control::TrajectoryPointReference active_return_target_ref(
+      active_return_target_);
   if (!sunray_controller_ || !active_return_target_valid_ ||
-      !active_return_target_.is_channel_enabled(
-          uav_control::TrajectoryPoint::ValidMask::POSITION)) {
+      !active_return_target_ref.is_field_enabled(
+          uav_control::TrajectoryPointReference::Field::POSITION)) {
     return false;
   }
 
@@ -1288,7 +1438,7 @@ bool Sunray_StateMachine::is_return_target_reached_locked() const {
   }
 
   const Eigen::Vector3d position_error =
-      current_state.position - active_return_target_.position;
+      current_state.position - active_return_target_ref.position;
   return std::abs(position_error.x()) <= fsm_param_config_.error_tolerance_pos_x_m &&
          std::abs(position_error.y()) <= fsm_param_config_.error_tolerance_pos_y_m &&
          std::abs(position_error.z()) <= fsm_param_config_.error_tolerance_pos_z_m;

@@ -1,23 +1,25 @@
 #include "sunray_helper/sunray_helper.h"
 
 #include <algorithm>
+#include <atomic>
 #include <ros/ros.h>
 
 #include <Eigen/Geometry>
 #include <cmath>
 
 #include <uav_control/AttitudeCmd.h>
+#include <uav_control/AttitudeCmdEnvelope.h>
 #include <uav_control/ComplexCmd.h>
+#include <uav_control/ComplexCmdEnvelope.h>
+#include <uav_control/ControlMeta.h>
 #include <uav_control/Land.h>
-#include <uav_control/LandCmd.h>
-#include <uav_control/PositionCmd.h>
 #include <uav_control/PositionRequest.h>
 #include <uav_control/ReturnHome.h>
-#include <uav_control/ReturnHomeCmd.h>
 #include <uav_control/Takeoff.h>
-#include <uav_control/TakeoffCmd.h>
-#include <uav_control/TrajectoryCmd.h>
+#include <uav_control/Trajectory.h>
+#include <uav_control/TrajectoryEnvelope.h>
 #include <uav_control/VelocityCmd.h>
+#include <uav_control/VelocityCmdEnvelope.h>
 
 namespace {
 std::string normalize_ns(const std::string &ns) {
@@ -92,6 +94,56 @@ const char *fsm_state_to_string(sunray_fsm::SunrayState state) {
     return "UNKNOWN_STATE";
   }
 }
+
+void fill_return_home_request(uav_control::ReturnHome::Request *req,
+                              bool use_takeoff_homepoint,
+                              const Eigen::Vector3d &target_position,
+                              bool yaw_ctrl, double yaw,
+                              double land_max_velocity) {
+  if (!req) {
+    return;
+  }
+
+  req->use_takeoff_homepoint = use_takeoff_homepoint;
+  req->target_position.x = target_position.x();
+  req->target_position.y = target_position.y();
+  req->target_position.z = target_position.z();
+  req->yaw_ctrl = yaw_ctrl;
+  req->yaw = yaw;
+  req->land_max_velocity = land_max_velocity;
+}
+
+void warn_if_return_land_type_ignored(int land_type) {
+  if (land_type > 0) {
+    ROS_WARN_THROTTLE(1.0,
+                      "Sunray_Helper: return land_type is no longer supported, "
+                      "ignoring legacy value=%d",
+                      land_type);
+  }
+}
+
+void warn_if_yaw_rate_ignored(double target_yaw_rate) {
+  if (std::abs(target_yaw_rate) > 1e-6) {
+    ROS_WARN_THROTTLE(1.0,
+                      "Sunray_Helper: position yaw_rate is not supported, "
+                      "ignoring value=%.3f",
+                      target_yaw_rate);
+  }
+}
+
+std::atomic<uint32_t> g_helper_control_sequence_id{1U};
+
+uav_control::ControlMeta make_helper_control_meta() {
+  uav_control::ControlMeta meta;
+  meta.header.stamp = ros::Time::now();
+  meta.source_id = uav_control::ControlMeta::SOURCE_API;
+  meta.sequence_id =
+      g_helper_control_sequence_id.fetch_add(1U, std::memory_order_relaxed);
+  meta.timeout = ros::Duration(0.0);
+  meta.allow_preempt = true;
+  meta.replace_same_source = true;
+  return meta;
+}
 } // namespace
 
 Sunray_Helper::Sunray_Helper(ros::NodeHandle &nh) : nh_(nh) {
@@ -111,21 +163,18 @@ Sunray_Helper::Sunray_Helper(ros::NodeHandle &nh) : nh_(nh) {
       uav_ns_.empty() ? "/sunray_control" : ("/" + uav_ns_ + "/sunray_control");
   ctrl_nh_ = ros::NodeHandle(ctrl_ns);
 
-  takeoff_pub_ = ctrl_nh_.advertise<uav_control::TakeoffCmd>("takeoff_cmd", 10);
-  land_pub_ = ctrl_nh_.advertise<uav_control::LandCmd>("land_cmd", 10);
-  return_pub_ =
-      ctrl_nh_.advertise<uav_control::ReturnHomeCmd>("return_cmd", 10);
-
-  position_cmd_pub_ =
-      ctrl_nh_.advertise<uav_control::PositionCmd>("position_cmd", 10);
   velocity_cmd_pub_ =
-      ctrl_nh_.advertise<uav_control::VelocityCmd>("velocity_cmd", 10);
+      ctrl_nh_.advertise<uav_control::VelocityCmdEnvelope>(
+          "velocity_cmd_envelope", 10);
   attitude_cmd_pub_ =
-      ctrl_nh_.advertise<uav_control::AttitudeCmd>("attitude_cmd", 10);
-  trajectory_cmd_pub_ =
-      ctrl_nh_.advertise<uav_control::TrajectoryCmd>("trajectory_cmd", 10);
+      ctrl_nh_.advertise<uav_control::AttitudeCmdEnvelope>(
+          "attitude_cmd_envelope", 10);
+  trajectory_envelope_pub_ =
+      ctrl_nh_.advertise<uav_control::TrajectoryEnvelope>(
+          "trajectory_envelope", 10);
   complex_cmd_pub_ =
-      ctrl_nh_.advertise<uav_control::ComplexCmd>("complex_cmd", 10);
+      ctrl_nh_.advertise<uav_control::ComplexCmdEnvelope>(
+          "complex_cmd_envelope", 10);
   fsm_state_sub_ =
       ctrl_nh_.subscribe("fsm_state", 10, &Sunray_Helper::fsm_state_cb, this);
 
@@ -266,22 +315,38 @@ bool Sunray_Helper::wait_for_landed(double timeout_s) {
 }
 
 bool Sunray_Helper::takeoff_async() {
-  uav_control::TakeoffCmd msg;
-  msg.takeoff_relative_height = 0.0;
-  msg.takeoff_max_velocity = 0.0;
-  takeoff_pub_.publish(msg);
-  set_cached_fsm_state(sunray_fsm::SunrayState::TAKEOFF);
-  return true;
+  return takeoff_async(0.0, 0.0);
 }
 
 bool Sunray_Helper::takeoff_block() {
+  return takeoff_block(0.0, 0.0);
+}
+
+bool Sunray_Helper::takeoff_async(double relative_takeoff_height,
+                                  double max_takeoff_velocity) {
   if (!takeoff_client_.exists() &&
       !takeoff_client_.waitForExistence(ros::Duration(1.0))) {
     return false;
   }
   uav_control::Takeoff srv;
-  srv.request.takeoff_relative_height = 0.0;
-  srv.request.takeoff_max_velocity = 0.0;
+  srv.request.takeoff_relative_height = relative_takeoff_height;
+  srv.request.takeoff_max_velocity = max_takeoff_velocity;
+  if (!takeoff_client_.call(srv) || !srv.response.accepted) {
+    return false;
+  }
+  set_cached_fsm_state(sunray_fsm::SunrayState::TAKEOFF);
+  return true;
+}
+
+bool Sunray_Helper::takeoff_block(double relative_takeoff_height,
+                                  double max_takeoff_velocity) {
+  if (!takeoff_client_.exists() &&
+      !takeoff_client_.waitForExistence(ros::Duration(1.0))) {
+    return false;
+  }
+  uav_control::Takeoff srv;
+  srv.request.takeoff_relative_height = relative_takeoff_height;
+  srv.request.takeoff_max_velocity = max_takeoff_velocity;
   if (!takeoff_client_.call(srv)) {
     return false;
   }
@@ -293,11 +358,21 @@ bool Sunray_Helper::takeoff_block() {
   return false;
 }
 
+bool Sunray_Helper::land_async() { return land_async(0, 0.0); }
+
+bool Sunray_Helper::land_block() { return land_block(0, 0.0); }
+
 bool Sunray_Helper::land_async(int land_type, double land_max_velocity) {
-  uav_control::LandCmd msg;
-  msg.land_type = land_type;
-  msg.land_max_velocity = land_max_velocity;
-  land_pub_.publish(msg);
+  if (!land_client_.exists() &&
+      !land_client_.waitForExistence(ros::Duration(1.0))) {
+    return false;
+  }
+  uav_control::Land srv;
+  srv.request.land_type = land_type;
+  srv.request.land_max_velocity = land_max_velocity;
+  if (!land_client_.call(srv) || !srv.response.accepted) {
+    return false;
+  }
   set_cached_fsm_state(sunray_fsm::SunrayState::LAND);
   return true;
 }
@@ -325,15 +400,16 @@ bool Sunray_Helper::land_block(int land_type, double land_max_velocity) {
 }
 
 bool Sunray_Helper::return_async() {
-  uav_control::ReturnHomeCmd msg;
-  msg.use_takeoff_homepoint = true;
-  msg.target_position.x = 0.0;
-  msg.target_position.y = 0.0;
-  msg.target_position.z = 0.0;
-  msg.yaw_ctrl = false;
-  msg.yaw = 0.0;
-  msg.land_max_velocity = 0.0;
-  return_pub_.publish(msg);
+  if (!return_client_.exists() &&
+      !return_client_.waitForExistence(ros::Duration(1.0))) {
+    return false;
+  }
+  uav_control::ReturnHome srv;
+  fill_return_home_request(&srv.request, true, Eigen::Vector3d::Zero(), false,
+                           0.0, 0.0);
+  if (!return_client_.call(srv) || !srv.response.accepted) {
+    return false;
+  }
   set_cached_fsm_state(sunray_fsm::SunrayState::RETURN);
   return true;
 }
@@ -344,13 +420,8 @@ bool Sunray_Helper::return_block() {
     return false;
   }
   uav_control::ReturnHome srv;
-  srv.request.use_takeoff_homepoint = true;
-  srv.request.target_position.x = 0.0;
-  srv.request.target_position.y = 0.0;
-  srv.request.target_position.z = 0.0;
-  srv.request.yaw_ctrl = false;
-  srv.request.yaw = 0.0;
-  srv.request.land_max_velocity = 0.0;
+  fill_return_home_request(&srv.request, true, Eigen::Vector3d::Zero(), false,
+                           0.0, 0.0);
   if (!return_client_.call(srv)) {
     return false;
   }
@@ -360,47 +431,34 @@ bool Sunray_Helper::return_block() {
   return srv.response.accepted;
 }
 
-bool Sunray_Helper::return_async(Eigen::Vector3d target_position,
-                                 bool yaw_ctrl,
-                                 double yaw,
-                                 double land_max_velocity) {
-  uav_control::ReturnHomeCmd msg;
-  msg.use_takeoff_homepoint = false;
-  msg.target_position.x = target_position.x();
-  msg.target_position.y = target_position.y();
-  msg.target_position.z = target_position.z();
-  msg.yaw_ctrl = yaw_ctrl;
-  msg.yaw = yaw;
-  msg.land_max_velocity = land_max_velocity;
-  return_pub_.publish(msg);
-
-  uav_target_.timestamp = ros::Time::now();
-  uav_target_.coordinate_frame =
-      uav_control::UAVStateEstimate::CoordinateFrame::LOCAL;
-  uav_target_.position = target_position;
-  if (yaw_ctrl) {
-    uav_target_.orientation = quat_from_yaw(yaw);
-  }
-  set_cached_fsm_state(sunray_fsm::SunrayState::RETURN);
-  return true;
-}
-
-bool Sunray_Helper::return_block(Eigen::Vector3d target_position,
-                                 bool yaw_ctrl,
-                                 double yaw,
-                                 double land_max_velocity) {
+bool Sunray_Helper::return_async(Eigen::Vector3d target_position) {
   if (!return_client_.exists() &&
       !return_client_.waitForExistence(ros::Duration(1.0))) {
     return false;
   }
   uav_control::ReturnHome srv;
-  srv.request.use_takeoff_homepoint = false;
-  srv.request.target_position.x = target_position.x();
-  srv.request.target_position.y = target_position.y();
-  srv.request.target_position.z = target_position.z();
-  srv.request.yaw_ctrl = yaw_ctrl;
-  srv.request.yaw = yaw;
-  srv.request.land_max_velocity = land_max_velocity;
+  fill_return_home_request(&srv.request, false, target_position, false, 0.0,
+                           0.0);
+  if (!return_client_.call(srv) || !srv.response.accepted) {
+    return false;
+  }
+
+  uav_target_.timestamp = ros::Time::now();
+  uav_target_.coordinate_frame =
+      uav_control::UAVStateEstimate::CoordinateFrame::LOCAL;
+  uav_target_.position = target_position;
+  set_cached_fsm_state(sunray_fsm::SunrayState::RETURN);
+  return true;
+}
+
+bool Sunray_Helper::return_block(Eigen::Vector3d target_position) {
+  if (!return_client_.exists() &&
+      !return_client_.waitForExistence(ros::Duration(1.0))) {
+    return false;
+  }
+  uav_control::ReturnHome srv;
+  fill_return_home_request(&srv.request, false, target_position, false, 0.0,
+                           0.0);
   if (!return_client_.call(srv)) {
     return false;
   }
@@ -409,22 +467,95 @@ bool Sunray_Helper::return_block(Eigen::Vector3d target_position,
     uav_target_.coordinate_frame =
         uav_control::UAVStateEstimate::CoordinateFrame::LOCAL;
     uav_target_.position = target_position;
-    if (yaw_ctrl) {
-      uav_target_.orientation = quat_from_yaw(yaw);
-    }
+    set_cached_fsm_state(sunray_fsm::SunrayState::RETURN);
+  }
+  return srv.response.accepted;
+}
+
+bool Sunray_Helper::return_async(Eigen::Vector3d target_position,
+                                 double target_yaw) {
+  return return_async(target_position, target_yaw, 0);
+}
+
+bool Sunray_Helper::return_block(Eigen::Vector3d target_position,
+                                 double target_yaw) {
+  return return_block(target_position, target_yaw, 0);
+}
+
+bool Sunray_Helper::return_async(Eigen::Vector3d target_position,
+                                 double target_yaw, int land_type) {
+  return return_async(target_position, target_yaw, land_type, 0.0);
+}
+
+bool Sunray_Helper::return_block(Eigen::Vector3d target_position,
+                                 double target_yaw, int land_type) {
+  return return_block(target_position, target_yaw, land_type, 0.0);
+}
+
+bool Sunray_Helper::return_async(Eigen::Vector3d target_position,
+                                 double target_yaw, int land_type,
+                                 double land_max_velocity) {
+  warn_if_return_land_type_ignored(land_type);
+  if (!return_client_.exists() &&
+      !return_client_.waitForExistence(ros::Duration(1.0))) {
+    return false;
+  }
+  uav_control::ReturnHome srv;
+  fill_return_home_request(&srv.request, false, target_position, true,
+                           target_yaw, land_max_velocity);
+  if (!return_client_.call(srv) || !srv.response.accepted) {
+    return false;
+  }
+
+  uav_target_.timestamp = ros::Time::now();
+  uav_target_.coordinate_frame =
+      uav_control::UAVStateEstimate::CoordinateFrame::LOCAL;
+  uav_target_.position = target_position;
+  uav_target_.orientation = quat_from_yaw(target_yaw);
+  set_cached_fsm_state(sunray_fsm::SunrayState::RETURN);
+  return true;
+}
+
+bool Sunray_Helper::return_block(Eigen::Vector3d target_position,
+                                 double target_yaw, int land_type,
+                                 double land_max_velocity) {
+  warn_if_return_land_type_ignored(land_type);
+
+  if (!return_client_.exists() &&
+      !return_client_.waitForExistence(ros::Duration(1.0))) {
+    return false;
+  }
+  uav_control::ReturnHome srv;
+  fill_return_home_request(&srv.request, false, target_position, true,
+                           target_yaw, land_max_velocity);
+  if (!return_client_.call(srv)) {
+    return false;
+  }
+  if (srv.response.accepted) {
+    uav_target_.timestamp = ros::Time::now();
+    uav_target_.coordinate_frame =
+        uav_control::UAVStateEstimate::CoordinateFrame::LOCAL;
+    uav_target_.position = target_position;
+    uav_target_.orientation = quat_from_yaw(target_yaw);
     set_cached_fsm_state(sunray_fsm::SunrayState::RETURN);
   }
   return srv.response.accepted;
 }
 
 bool Sunray_Helper::set_position_async(Eigen::Vector3d position_) {
-  uav_control::PositionCmd msg;
-  msg.target_position.x = position_.x();
-  msg.target_position.y = position_.y();
-  msg.target_position.z = position_.z();
-  msg.yaw_ctrl = false;
-  msg.yaw = 0.0;
-  position_cmd_pub_.publish(msg);
+  if (!position_cmd_client_.exists() &&
+      !position_cmd_client_.waitForExistence(ros::Duration(1.0))) {
+    return false;
+  }
+  uav_control::PositionRequest srv;
+  srv.request.target_position.x = position_.x();
+  srv.request.target_position.y = position_.y();
+  srv.request.target_position.z = position_.z();
+  srv.request.yaw_ctrl = false;
+  srv.request.yaw = 0.0;
+  if (!position_cmd_client_.call(srv) || !srv.response.accepted) {
+    return false;
+  }
 
   uav_target_.timestamp = ros::Time::now();
   uav_target_.coordinate_frame =
@@ -483,25 +614,8 @@ bool Sunray_Helper::set_position_list_block(
   return set_position_block(position_list_.back());
 }
 
-bool Sunray_Helper::set_position_async(Eigen::Vector3d position_, float yaw) {
-  uav_control::PositionCmd msg;
-  msg.target_position.x = position_.x();
-  msg.target_position.y = position_.y();
-  msg.target_position.z = position_.z();
-  msg.yaw_ctrl = true;
-  msg.yaw = yaw;
-  position_cmd_pub_.publish(msg);
-
-  uav_target_.timestamp = ros::Time::now();
-  uav_target_.coordinate_frame =
-      uav_control::UAVStateEstimate::CoordinateFrame::LOCAL;
-  uav_target_.position = position_;
-  uav_target_.orientation = quat_from_yaw(yaw);
-  set_cached_fsm_state(sunray_fsm::SunrayState::POSITION_CONTROL);
-  return true;
-}
-
-bool Sunray_Helper::set_position_block(Eigen::Vector3d position_, float yaw) {
+bool Sunray_Helper::set_position_async(Eigen::Vector3d position_,
+                                       double target_yaw) {
   if (!position_cmd_client_.exists() &&
       !position_cmd_client_.waitForExistence(ros::Duration(1.0))) {
     return false;
@@ -511,7 +625,32 @@ bool Sunray_Helper::set_position_block(Eigen::Vector3d position_, float yaw) {
   srv.request.target_position.y = position_.y();
   srv.request.target_position.z = position_.z();
   srv.request.yaw_ctrl = true;
-  srv.request.yaw = yaw;
+  srv.request.yaw = target_yaw;
+  if (!position_cmd_client_.call(srv) || !srv.response.accepted) {
+    return false;
+  }
+
+  uav_target_.timestamp = ros::Time::now();
+  uav_target_.coordinate_frame =
+      uav_control::UAVStateEstimate::CoordinateFrame::LOCAL;
+  uav_target_.position = position_;
+  uav_target_.orientation = quat_from_yaw(target_yaw);
+  set_cached_fsm_state(sunray_fsm::SunrayState::POSITION_CONTROL);
+  return true;
+}
+
+bool Sunray_Helper::set_position_block(Eigen::Vector3d position_,
+                                       double target_yaw) {
+  if (!position_cmd_client_.exists() &&
+      !position_cmd_client_.waitForExistence(ros::Duration(1.0))) {
+    return false;
+  }
+  uav_control::PositionRequest srv;
+  srv.request.target_position.x = position_.x();
+  srv.request.target_position.y = position_.y();
+  srv.request.target_position.z = position_.z();
+  srv.request.yaw_ctrl = true;
+  srv.request.yaw = target_yaw;
   if (!position_cmd_client_.call(srv)) {
     return false;
   }
@@ -520,15 +659,29 @@ bool Sunray_Helper::set_position_block(Eigen::Vector3d position_, float yaw) {
     uav_target_.coordinate_frame =
         uav_control::UAVStateEstimate::CoordinateFrame::LOCAL;
     uav_target_.position = position_;
-    uav_target_.orientation = quat_from_yaw(yaw);
+    uav_target_.orientation = quat_from_yaw(target_yaw);
     set_cached_fsm_state(sunray_fsm::SunrayState::POSITION_CONTROL);
     return wait_for_position_reached(position_, block_wait_timeout_s_);
   }
   return false;
 }
 
+bool Sunray_Helper::set_position_async(Eigen::Vector3d target_position,
+                                       double target_yaw,
+                                       double target_yaw_rate) {
+  warn_if_yaw_rate_ignored(target_yaw_rate);
+  return set_position_async(target_position, target_yaw);
+}
+
+bool Sunray_Helper::set_position_block(Eigen::Vector3d target_position,
+                                       double target_yaw,
+                                       double target_yaw_rate) {
+  warn_if_yaw_rate_ignored(target_yaw_rate);
+  return set_position_block(target_position, target_yaw);
+}
+
 bool Sunray_Helper::set_position_list_async(
-    std::vector<std::pair<Eigen::Vector3d, float>> point_list_) {
+    std::vector<std::pair<Eigen::Vector3d, double>> point_list_) {
   if (point_list_.empty()) {
     return false;
   }
@@ -540,7 +693,7 @@ bool Sunray_Helper::set_position_list_async(
 }
 
 bool Sunray_Helper::set_position_list_block(
-    std::vector<std::pair<Eigen::Vector3d, float>> point_list_) {
+    std::vector<std::pair<Eigen::Vector3d, double>> point_list_) {
   if (point_list_.empty()) {
     return false;
   }
@@ -551,16 +704,47 @@ bool Sunray_Helper::set_position_list_block(
   return set_position_block(point_list_.back().first, point_list_.back().second);
 }
 
+bool Sunray_Helper::set_position_list_async(
+    std::vector<std::pair<Eigen::Vector3d, double>> target_position_list,
+    double target_yaw_rate) {
+  if (target_position_list.empty()) {
+    return false;
+  }
+  if (target_position_list.size() > 1) {
+    ROS_WARN_THROTTLE(1.0,
+                      "Sunray_Helper: position list not supported, use last");
+  }
+  return set_position_async(target_position_list.back().first,
+                            target_position_list.back().second,
+                            target_yaw_rate);
+}
+
+bool Sunray_Helper::set_position_list_block(
+    std::vector<std::pair<Eigen::Vector3d, double>> target_position_list,
+    double target_yaw_rate) {
+  if (target_position_list.empty()) {
+    return false;
+  }
+  if (target_position_list.size() > 1) {
+    ROS_WARN_THROTTLE(1.0,
+                      "Sunray_Helper: position list not supported, use last");
+  }
+  return set_position_block(target_position_list.back().first,
+                            target_position_list.back().second,
+                            target_yaw_rate);
+}
+
 bool Sunray_Helper::set_linear_velocity_async(Eigen::Vector3d velocity_) {
-  uav_control::VelocityCmd msg;
-  msg.position_ctrl = false;
-  msg.target_linear_velocity.x = velocity_.x();
-  msg.target_linear_velocity.y = velocity_.y();
-  msg.target_linear_velocity.z = velocity_.z();
-  msg.target_angular_velocity.x = 0.0;
-  msg.target_angular_velocity.y = 0.0;
-  msg.target_angular_velocity.z = 0.0;
-  velocity_cmd_pub_.publish(msg);
+  uav_control::VelocityCmdEnvelope envelope;
+  envelope.meta = make_helper_control_meta();
+  envelope.payload.position_ctrl = false;
+  envelope.payload.target_linear_velocity.x = velocity_.x();
+  envelope.payload.target_linear_velocity.y = velocity_.y();
+  envelope.payload.target_linear_velocity.z = velocity_.z();
+  envelope.payload.target_angular_velocity.x = 0.0;
+  envelope.payload.target_angular_velocity.y = 0.0;
+  envelope.payload.target_angular_velocity.z = 0.0;
+  velocity_cmd_pub_.publish(envelope);
 
   uav_target_.timestamp = ros::Time::now();
   uav_target_.coordinate_frame =
@@ -570,48 +754,30 @@ bool Sunray_Helper::set_linear_velocity_async(Eigen::Vector3d velocity_) {
   return true;
 }
 
-bool Sunray_Helper::set_angular_velocity_async(Eigen::Vector3d velocity_) {
-  uav_control::VelocityCmd msg;
-  msg.position_ctrl = false;
-  msg.target_linear_velocity.x = 0.0;
-  msg.target_linear_velocity.y = 0.0;
-  msg.target_linear_velocity.z = 0.0;
-  msg.target_angular_velocity.x = velocity_.x();
-  msg.target_angular_velocity.y = velocity_.y();
-  msg.target_angular_velocity.z = velocity_.z();
-  velocity_cmd_pub_.publish(msg);
-
-  uav_target_.timestamp = ros::Time::now();
-  uav_target_.coordinate_frame =
-      uav_control::UAVStateEstimate::CoordinateFrame::LOCAL;
-  uav_target_.bodyrates = velocity_;
-  set_cached_fsm_state(sunray_fsm::SunrayState::VELOCITY_CONTROL);
-  return true;
-}
-
-bool Sunray_Helper::set_position_velocity_async(Eigen::Vector3d position_,
-                                                float velocity_) {
+bool Sunray_Helper::set_position_velocity_async(
+    Eigen::Vector3d position_, double velocity_) {
   Eigen::Vector3d cmd_vel = Eigen::Vector3d::Zero();
-  if (velocity_ > 0.0f) {
+  if (velocity_ > 0.0) {
     Eigen::Vector3d current = get_uav_position();
     Eigen::Vector3d diff = position_ - current;
     const double norm = diff.norm();
     if (norm > 1e-6) {
-      cmd_vel = diff / norm * static_cast<double>(velocity_);
+      cmd_vel = diff / norm * velocity_;
     }
   }
-  uav_control::VelocityCmd msg;
-  msg.position_ctrl = true;
-  msg.target_position.x = position_.x();
-  msg.target_position.y = position_.y();
-  msg.target_position.z = position_.z();
-  msg.target_linear_velocity.x = cmd_vel.x();
-  msg.target_linear_velocity.y = cmd_vel.y();
-  msg.target_linear_velocity.z = cmd_vel.z();
-  msg.target_angular_velocity.x = 0.0;
-  msg.target_angular_velocity.y = 0.0;
-  msg.target_angular_velocity.z = 0.0;
-  velocity_cmd_pub_.publish(msg);
+  uav_control::VelocityCmdEnvelope envelope;
+  envelope.meta = make_helper_control_meta();
+  envelope.payload.position_ctrl = true;
+  envelope.payload.target_position.x = position_.x();
+  envelope.payload.target_position.y = position_.y();
+  envelope.payload.target_position.z = position_.z();
+  envelope.payload.target_linear_velocity.x = cmd_vel.x();
+  envelope.payload.target_linear_velocity.y = cmd_vel.y();
+  envelope.payload.target_linear_velocity.z = cmd_vel.z();
+  envelope.payload.target_angular_velocity.x = 0.0;
+  envelope.payload.target_angular_velocity.y = 0.0;
+  envelope.payload.target_angular_velocity.z = 0.0;
+  velocity_cmd_pub_.publish(envelope);
 
   uav_target_.timestamp = ros::Time::now();
   uav_target_.coordinate_frame =
@@ -622,13 +788,13 @@ bool Sunray_Helper::set_position_velocity_async(Eigen::Vector3d position_,
   return true;
 }
 
-bool Sunray_Helper::set_position_velocity_block(Eigen::Vector3d position_,
-                                                float velocity_) {
+bool Sunray_Helper::set_position_velocity_block(
+    Eigen::Vector3d position_, double velocity_) {
   return set_position_velocity_async(position_, velocity_);
 }
 
 bool Sunray_Helper::set_position_velocity_list_async(
-    std::vector<std::pair<Eigen::Vector3d, float>> point_list_) {
+    std::vector<std::pair<Eigen::Vector3d, double>> point_list_) {
   if (point_list_.empty()) {
     return false;
   }
@@ -642,7 +808,7 @@ bool Sunray_Helper::set_position_velocity_list_async(
 }
 
 bool Sunray_Helper::set_position_velocity_list_block(
-    std::vector<std::pair<Eigen::Vector3d, float>> point_list_) {
+    std::vector<std::pair<Eigen::Vector3d, double>> point_list_) {
   if (point_list_.empty()) {
     return false;
   }
@@ -655,32 +821,34 @@ bool Sunray_Helper::set_position_velocity_list_block(
                                      point_list_.back().second);
 }
 
-bool Sunray_Helper::set_yaw_async(float yaw_) {
-  uav_control::AttitudeCmd msg;
-  msg.yaw_ctrl_types = true;
-  msg.yaw = yaw_;
-  attitude_cmd_pub_.publish(msg);
+bool Sunray_Helper::set_yaw_async(double target_yaw) {
+  uav_control::AttitudeCmdEnvelope envelope;
+  envelope.meta = make_helper_control_meta();
+  envelope.payload.yaw_ctrl_types = true;
+  envelope.payload.yaw = target_yaw;
+  attitude_cmd_pub_.publish(envelope);
 
   uav_target_.timestamp = ros::Time::now();
   uav_target_.coordinate_frame =
       uav_control::UAVStateEstimate::CoordinateFrame::LOCAL;
-  uav_target_.orientation = quat_from_yaw(yaw_);
+  uav_target_.orientation = quat_from_yaw(target_yaw);
   set_cached_fsm_state(sunray_fsm::SunrayState::ATTITUDE_CONTROL);
   return true;
 }
 
-bool Sunray_Helper::set_yaw_block(float yaw_) {
-  return set_yaw_async(yaw_);
+bool Sunray_Helper::set_yaw_block(double target_yaw) {
+  return set_yaw_async(target_yaw);
 }
 
-bool Sunray_Helper::set_yaw_adjust_async(float adjust_yaw_) {
-  uav_control::AttitudeCmd msg;
-  msg.yaw_ctrl_types = false;
-  msg.yaw = adjust_yaw_;
-  attitude_cmd_pub_.publish(msg);
+bool Sunray_Helper::set_yaw_adjust_async(double adjust_yaw) {
+  uav_control::AttitudeCmdEnvelope envelope;
+  envelope.meta = make_helper_control_meta();
+  envelope.payload.yaw_ctrl_types = false;
+  envelope.payload.yaw = adjust_yaw;
+  attitude_cmd_pub_.publish(envelope);
 
   const Eigen::Vector3d rpy = get_uav_attitude_rpy_rad();
-  const double yaw = rpy.z() + static_cast<double>(adjust_yaw_);
+  const double yaw = rpy.z() + adjust_yaw;
   uav_target_.timestamp = ros::Time::now();
   uav_target_.coordinate_frame =
       uav_control::UAVStateEstimate::CoordinateFrame::LOCAL;
@@ -689,27 +857,62 @@ bool Sunray_Helper::set_yaw_adjust_async(float adjust_yaw_) {
   return true;
 }
 
-bool Sunray_Helper::set_yaw_adjust_block(float adjust_yaw_) {
-  return set_yaw_adjust_async(adjust_yaw_);
+bool Sunray_Helper::set_yaw_adjust_block(double adjust_yaw) {
+  return set_yaw_adjust_async(adjust_yaw);
 }
 
-bool Sunray_Helper::set_trajectory_asycn() {
-  ROS_WARN_THROTTLE(1.0,
-                    "Sunray_Helper: trajectory control requires trajectory data");
-  return false;
+bool Sunray_Helper::set_trajectory_point_async(
+    const uav_control::TrajectoryPoint &target_trajpoint) {
+  uav_control::TrajectoryEnvelope envelope;
+  envelope.meta = make_helper_control_meta();
+  envelope.payload.header.stamp = ros::Time::now();
+  envelope.payload.reference_type = uav_control::Trajectory::FLAT_OUTPUT;
+  envelope.payload.flat_output_order = uav_control::Trajectory::SNAP;
+  envelope.payload.points.push_back(target_trajpoint);
+  trajectory_envelope_pub_.publish(envelope);
+
+  const uav_control::TrajectoryPointReference traj_ref(target_trajpoint);
+  uav_target_.timestamp = ros::Time::now();
+  uav_target_.coordinate_frame =
+      uav_control::UAVStateEstimate::CoordinateFrame::LOCAL;
+  uav_target_.position = traj_ref.position;
+  uav_target_.velocity = traj_ref.velocity;
+  uav_target_.orientation = quat_from_yaw(traj_ref.heading);
+  set_cached_fsm_state(sunray_fsm::SunrayState::TRAJECTORY_CONTROL);
+  return true;
 }
 
-bool Sunray_Helper::set_trajectory_block() {
-  ROS_WARN_THROTTLE(1.0,
-                    "Sunray_Helper: trajectory control requires trajectory data");
-  return false;
+bool Sunray_Helper::set_trajectory_async(
+    const uav_control::Trajectory &trajectory) {
+  if (trajectory.points.empty()) {
+    ROS_WARN_THROTTLE(1.0, "Sunray_Helper: empty trajectory is not allowed");
+    return false;
+  }
+  uav_control::TrajectoryEnvelope envelope;
+  envelope.meta = make_helper_control_meta();
+  envelope.payload = trajectory;
+  if (envelope.payload.header.stamp.isZero()) {
+    envelope.payload.header.stamp = ros::Time::now();
+  }
+  trajectory_envelope_pub_.publish(envelope);
+
+  const uav_control::TrajectoryPointReference first_ref(trajectory.points.front());
+  uav_target_.timestamp = ros::Time::now();
+  uav_target_.coordinate_frame =
+      uav_control::UAVStateEstimate::CoordinateFrame::LOCAL;
+  uav_target_.position = first_ref.position;
+  uav_target_.velocity = first_ref.velocity;
+  uav_target_.orientation = quat_from_yaw(first_ref.heading);
+  set_cached_fsm_state(sunray_fsm::SunrayState::TRAJECTORY_CONTROL);
+  return true;
 }
 
 bool Sunray_Helper::set_complex_control() {
-  uav_control::ComplexCmd msg;
-  msg.header.stamp = ros::Time::now();
-  msg.mode = 0;
-  complex_cmd_pub_.publish(msg);
+  uav_control::ComplexCmdEnvelope envelope;
+  envelope.meta = make_helper_control_meta();
+  envelope.payload.header.stamp = ros::Time::now();
+  envelope.payload.mode = 0;
+  complex_cmd_pub_.publish(envelope);
   set_cached_fsm_state(sunray_fsm::SunrayState::COMPLEX_CONTROL);
   return true;
 }
@@ -778,8 +981,8 @@ Eigen::Quaterniond Sunray_Helper::get_target_attitude_quat() {
   return uav_target_.orientation;
 }
 
-float Sunray_Helper::get_target_thrust() {
-  return 0.0f;
+double Sunray_Helper::get_target_thrust() {
+  return 0.0;
 }
 
 sunray_fsm::SunrayState Sunray_Helper::get_statemachine_state() {

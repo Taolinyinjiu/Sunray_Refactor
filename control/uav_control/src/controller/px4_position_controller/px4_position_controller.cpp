@@ -142,7 +142,9 @@ ControllerOutput Position_Controller::handle_takeoff_state() {
       const ros::Duration hold_time = now - takeoff_holdstart_time_;
       if (hold_time.toSec() >= hold_required) {
         // 设置轨迹点为当前起飞参数
-        trajectory_.position = takeoff_expect_position_;
+        TrajectoryPointReference hold_trajectory(trajectory_);
+        hold_trajectory.set_position(takeoff_expect_position_);
+        trajectory_ = hold_trajectory.toRosMessage();
         // 切换到HOVER状态
         controller_state_ = ControllerState::HOVER;
         // 构造零速输出
@@ -224,34 +226,37 @@ ControllerOutput Position_Controller::handle_takeoff_state() {
 ControllerOutput Position_Controller::handle_hover_state() {
   ControllerOutput temp_output;
   // HOVER状态下，设置输出为当前轨迹点
+  const TrajectoryPointReference trajectory_ref(trajectory_);
   temp_output.channel_enable(ControllerOutputMask::POSITION);
-  temp_output.position = trajectory_.position;
+  temp_output.position = trajectory_ref.position;
   return temp_output;
 }
 
 ControllerOutput Position_Controller::handle_move_state() {
   ControllerOutput temp_output;
+  (void)update_trajectory_reference_from_buffer(ros::Time::now());
+  const TrajectoryPointReference trajectory_ref(trajectory_);
   // 当切换到MOVE时，通常是接受到了相关的控制指令
-  if (trajectory_.is_channel_enabled(TrajectoryPoint::ValidMask::POSITION)) {
+  if (trajectory_ref.is_field_enabled(TrajectoryPointReference::Field::POSITION)) {
     temp_output.channel_enable(ControllerOutputMask::POSITION);
-    temp_output.position = trajectory_.position;
+    temp_output.position = trajectory_ref.position;
   }
-  if (trajectory_.is_channel_enabled(TrajectoryPoint::ValidMask::VELOCITY)) {
+  if (trajectory_ref.is_field_enabled(TrajectoryPointReference::Field::VELOCITY)) {
     temp_output.channel_enable(ControllerOutputMask::VELOCITY);
-    temp_output.velocity = trajectory_.velocity;
+    temp_output.velocity = trajectory_ref.velocity;
   }
-  if (trajectory_.is_channel_enabled(
-          TrajectoryPoint::ValidMask::ACCELERATION)) {
+  if (trajectory_ref.is_field_enabled(
+          TrajectoryPointReference::Field::ACCELERATION)) {
     temp_output.channel_enable(ControllerOutputMask::ACCELERATION);
-    temp_output.acceleration_or_force = trajectory_.acceleration;
+    temp_output.acceleration_or_force = trajectory_ref.acceleration;
   }
-  if (trajectory_.is_channel_enabled(TrajectoryPoint::ValidMask::YAW)) {
+  if (trajectory_ref.is_field_enabled(TrajectoryPointReference::Field::YAW)) {
     temp_output.channel_enable(ControllerOutputMask::YAW);
-    temp_output.yaw = trajectory_.yaw;
+    temp_output.yaw = trajectory_ref.heading;
   }
-  if (trajectory_.is_channel_enabled(TrajectoryPoint::ValidMask::YAW_RATE)) {
+  if (trajectory_ref.is_field_enabled(TrajectoryPointReference::Field::YAW_RATE)) {
     temp_output.channel_enable(ControllerOutputMask::YAW_RATE);
-    temp_output.yaw_rate = trajectory_.yaw_rate;
+    temp_output.yaw_rate = trajectory_ref.heading_rate;
   }
 
   // position_controller
@@ -282,7 +287,8 @@ ControllerOutput Position_Controller::handle_land_state() {
   }
   /** ---------------计算理论降落速度---------------- */
   // 1. 起点位置和速度
-  Eigen::Vector3d start_position = trajectory_.position;
+  const TrajectoryPointReference trajectory_ref(trajectory_);
+  Eigen::Vector3d start_position = trajectory_ref.position;
   Eigen::Vector3d start_velocity;
   start_velocity.setZero();
   // 2. 终点位置和速度

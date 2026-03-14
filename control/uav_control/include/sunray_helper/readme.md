@@ -23,3 +23,8 @@ struct Sunray_FSM_Status{
 	// 
 }
 ```
+
+https://robomaster-dev.readthedocs.io/zh-cn/latest/python_sdk/robomaster.html#module-robomaster.flight
+
+Sunray_Helper本质上是对Sunray_Drone动作类接口的封装，根据无人机动作本身特性的不同，分为即时动作控制和任务动作控制
+1. 任务动作控制：指的是需要持续一段时间才能完成的动作，比如无人机向前飞行一米，需要飞行一段时间才能到达对应的位置

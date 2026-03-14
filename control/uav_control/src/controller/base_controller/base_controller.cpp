@@ -22,9 +22,11 @@ bool Base_Controller::set_takeoff_mode(double relative_takeoff_height,
   if (controller_state_ != ControllerState::OFF) {
     return false;
   }
+  reset_trajectory_tracking();
+  trajectory_completed_ = false;
   
-	// 刷新home位置
-	home_position_ = uav_current_state_.position;
+		// 刷新home位置
+		home_position_ = uav_current_state_.position;
   home_position_initialized_ = true;
 
 		// 更新起飞最大速度
@@ -67,6 +69,8 @@ bool Base_Controller::set_land_mode() {
       controller_state_ == ControllerState::UNDEFINED) {
     return false;
   }
+  reset_trajectory_tracking();
+  trajectory_completed_ = false;
 
   // 以当前位置作为降落参考；降落高度优先使用锁存的地面参考高度。
   land_expect_position_ = uav_current_state_.position;
@@ -108,7 +112,35 @@ bool Base_Controller::set_emergency_mode() {
       controller_state_ == ControllerState::UNDEFINED) {
     return false;
   }
+  reset_trajectory_tracking();
+  trajectory_completed_ = false;
   controller_state_ = ControllerState::EMERGENCY_LAND;
+  return true;
+}
+
+void Base_Controller::reset_trajectory_tracking() {
+  trajectory_tracking_enabled_ = false;
+  trajectory_buffer_.clear();
+}
+
+bool Base_Controller::update_trajectory_reference_from_buffer(
+    const ros::Time &now) {
+  if (!trajectory_tracking_enabled_) {
+    return false;
+  }
+
+  trajectory_buffer_.update_active(now);
+  const TrajectorySample sample = trajectory_buffer_.sample(now);
+  if (!sample.valid) {
+    return false;
+  }
+
+  trajectory_ = sample.point;
+  if (sample.reached_end) {
+    trajectory_tracking_enabled_ = false;
+    trajectory_completed_ = true;
+    trajectory_buffer_.mark_completed();
+  }
   return true;
 }
 
@@ -117,8 +149,12 @@ bool Base_Controller::set_off_mode() {
     return false;
   }
 
-  trajectory_.clear_all();
-  trajectory_.set_position(uav_current_state_.position);
+  reset_trajectory_tracking();
+  trajectory_completed_ = false;
+  TrajectoryPointReference trajectory_ref;
+  trajectory_ref.clear_all();
+  trajectory_ref.set_position(uav_current_state_.position);
+  trajectory_ = trajectory_ref.toRosMessage();
   controller_state_ = ControllerState::OFF;
   return true;
 }
@@ -144,8 +180,12 @@ bool Base_Controller::set_hover_mode() {
     return false;
   }
 
-  trajectory_.clear_all();
-  trajectory_.set_position(uav_current_state_.position);
+  reset_trajectory_tracking();
+  trajectory_completed_ = false;
+  TrajectoryPointReference trajectory_ref;
+  trajectory_ref.clear_all();
+  trajectory_ref.set_position(uav_current_state_.position);
+  trajectory_ = trajectory_ref.toRosMessage();
   controller_state_ = ControllerState::HOVER;
   return true;
 }
@@ -156,8 +196,14 @@ bool Base_Controller::set_move_mode() {
     return false;
   }
 
-  if (trajectory_.valid_mask ==
-      static_cast<uint32_t>(TrajectoryPoint::ValidMask::UNDEFINED)) {
+  if (trajectory_tracking_enabled_ && trajectory_buffer_.has_reference()) {
+    controller_state_ = ControllerState::MOVE;
+    return true;
+  }
+
+  const TrajectoryPointReference trajectory_ref(trajectory_);
+  if (trajectory_ref.valid_mask ==
+      static_cast<uint32_t>(TrajectoryPointReference::Field::UNDEFINED)) {
     return false;
   }
 
@@ -246,12 +292,55 @@ bool Base_Controller::set_px4_land_status(const bool land_status){
  * 当 `valid_mask` 为 `UNDEFINED` 时，会按非零字段推断有效通道，
  * 用于兼容未显式设置有效位的旧调用路径。
  */
-bool Base_Controller::set_trajectory(const TrajectoryPoint &trajectory) {
+bool Base_Controller::set_trajectory(
+    const uav_control::TrajectoryPoint &trajectory) {
+  reset_trajectory_tracking();
+  trajectory_completed_ = false;
   trajectory_ = trajectory;
-  if (trajectory_.valid_mask ==
-      static_cast<uint32_t>(TrajectoryPoint::ValidMask::UNDEFINED)) {
-    trajectory_.infer_valid_mask_from_nonzero();
+  TrajectoryPointReference trajectory_ref(trajectory_);
+  if (trajectory_ref.valid_mask ==
+      static_cast<uint32_t>(TrajectoryPointReference::Field::UNDEFINED)) {
+    trajectory_ref.infer_valid_mask_from_nonzero();
+    trajectory_ = trajectory_ref.toRosMessage();
   }
+  return true;
+}
+
+bool Base_Controller::set_trajectory(const uav_control::Trajectory &trajectory) {
+  if (trajectory.points.empty()) {
+    return false;
+  }
+
+  if (trajectory.points.size() == 1U) {
+    return set_trajectory(trajectory.points.front());
+  }
+
+  reset_trajectory_tracking();
+  trajectory_completed_ = false;
+
+  const ros::Time now = ros::Time::now();
+  const uint32_t fallback_id = next_trajectory_id_++;
+  if (!trajectory_buffer_.push_pending(trajectory, now, fallback_id)) {
+    return false;
+  }
+
+  // 为将来时生效的轨迹预置一个安全保持参考，避免沿用上一条控制命令。
+  if (uav_current_state_.isValid()) {
+    TrajectoryPointReference hold_ref;
+    hold_ref.clear_all();
+    hold_ref.set_position(uav_current_state_.position);
+    trajectory_ = hold_ref.toRosMessage();
+  } else {
+    TrajectoryPointReference first_ref(trajectory.points.front());
+    if (first_ref.valid_mask ==
+        static_cast<uint32_t>(TrajectoryPointReference::Field::UNDEFINED)) {
+      first_ref.infer_valid_mask_from_nonzero();
+    }
+    trajectory_ = first_ref.toRosMessage();
+  }
+
+  trajectory_tracking_enabled_ = true;
+  (void)update_trajectory_reference_from_buffer(now);
   return true;
 }
 
@@ -266,6 +355,26 @@ ControllerState Base_Controller::get_controller_state() const {
 
 bool Base_Controller::has_home_position() const {
   return home_position_initialized_;
+}
+
+bool Base_Controller::update_home_position(Eigen::Vector3d position) const {
+  if (!position.allFinite()) {
+    return false;
+  }
+
+  Base_Controller *self = const_cast<Base_Controller *>(this);
+  self->home_position_ = position;
+  self->home_position_initialized_ = true;
+  return true;
+}
+
+bool Base_Controller::update_home_position(Eigen::Vector3d position,
+                                           double yaw) const {
+  if (!std::isfinite(yaw)) {
+    return false;
+  }
+
+  return update_home_position(position);
 }
 
 const Eigen::Vector3d &Base_Controller::get_home_position() const {
@@ -307,6 +416,10 @@ bool Base_Controller::is_emergency_completed() const {
   if (controller_state_ == ControllerState::OFF)
     return true;
   return false;
+}
+
+bool Base_Controller::is_trajectory_completed() const {
+  return trajectory_completed_;
 }
 
 /**

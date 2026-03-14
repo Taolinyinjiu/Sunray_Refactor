@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstdint>
 #include <deque>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -14,13 +16,15 @@
 #include <std_msgs/UInt8.h>
 
 #include <uav_control/AttitudeCmd.h>
+#include <uav_control/AttitudeCmdEnvelope.h>
 #include <uav_control/ComplexCmd.h>
-#include <uav_control/LandCmd.h>
-#include <uav_control/PositionCmd.h>
-#include <uav_control/ReturnHomeCmd.h>
-#include <uav_control/TakeoffCmd.h>
-#include <uav_control/TrajectoryCmd.h>
+#include <uav_control/ComplexCmdEnvelope.h>
+#include <uav_control/ControlMeta.h>
+#include <uav_control/Trajectory.h>
+#include <uav_control/TrajectoryEnvelope.h>
+#include <uav_control/TrajectoryPoint.h>
 #include <uav_control/VelocityCmd.h>
+#include <uav_control/VelocityCmdEnvelope.h>
 #include <uav_control/Land.h>
 #include <uav_control/PositionRequest.h>
 #include <uav_control/ReturnHome.h>
@@ -32,6 +36,7 @@
 #include "sunray_statemachine_datatypes.h"
 
 #include "controller/base_controller/base_controller.hpp"
+#include "control_msg_types/trajectory_point.hpp"
 #include "sunray_control_arbiter/sunray_control_arbiter.h"
 
 namespace sunray_fsm {
@@ -132,14 +137,14 @@ private:
   void odom_fuse_timer_cb(const ros::TimerEvent &);
   void external_odom_cb(const nav_msgs::Odometry::ConstPtr &msg);
   void publish_external_odom_to_px4();
-  void takeoff_cmd_cb(const uav_control::TakeoffCmd::ConstPtr &msg);
-  void land_cmd_cb(const uav_control::LandCmd::ConstPtr &msg);
-  void return_cmd_cb(const uav_control::ReturnHomeCmd::ConstPtr &msg);
-  void position_cmd_cb(const uav_control::PositionCmd::ConstPtr &msg);
-  void velocity_cmd_cb(const uav_control::VelocityCmd::ConstPtr &msg);
-  void attitude_cmd_cb(const uav_control::AttitudeCmd::ConstPtr &msg);
-  void trajectory_cmd_cb(const uav_control::TrajectoryCmd::ConstPtr &msg);
-  void complex_cmd_cb(const uav_control::ComplexCmd::ConstPtr &msg);
+  void velocity_cmd_envelope_cb(
+      const uav_control::VelocityCmdEnvelope::ConstPtr &msg);
+  void attitude_cmd_envelope_cb(
+      const uav_control::AttitudeCmdEnvelope::ConstPtr &msg);
+  void trajectory_envelope_cb(
+      const uav_control::TrajectoryEnvelope::ConstPtr &msg);
+  void complex_cmd_envelope_cb(
+      const uav_control::ComplexCmdEnvelope::ConstPtr &msg);
   bool takeoff_srv_cb(uav_control::Takeoff::Request &req,
                       uav_control::Takeoff::Response &res);
   bool land_srv_cb(uav_control::Land::Request &req,
@@ -161,6 +166,20 @@ private:
    */
   bool ensure_offboard_and_arm();
   bool ensure_auto_land_mode();
+  void load_control_source_policies(ros::NodeHandle &cfg_nh);
+  bool accept_control_meta_locked(const uav_control::ControlMeta &meta,
+                                  SunrayState requested_state,
+                                  ros::Time *stamp,
+                                  double *timeout_s,
+                                  int *priority,
+                                  std::string *reason);
+  void update_active_control_source_locked(const uav_control::ControlMeta &meta,
+                                           SunrayState requested_state,
+                                           const ros::Time &stamp,
+                                           double timeout_s,
+                                           int priority);
+  void clear_active_control_source_locked();
+  bool is_active_control_source_expired_locked(const ros::Time &now) const;
 
   /**
    * @brief 当前状态是否需要飞控处于 OFFBOARD/ARM。
@@ -204,6 +223,21 @@ private:
    */
   std::shared_ptr<uav_control::Base_Controller> get_controller() const;
 
+  struct ControlSourcePolicy {
+    int priority{0};
+    double timeout_s{0.5};
+  };
+
+  struct ActiveControlSource {
+    bool valid{false};
+    uint8_t source_id{0U};
+    uint32_t sequence_id{0U};
+    int priority{0};
+    ros::Time last_update_time{};
+    double timeout_s{0.0};
+    SunrayState control_state{SunrayState::OFF};
+  };
+
   /** -----------------基础参数---------------------- */
   ros::NodeHandle nh_;                 ///< ROS 节点句柄。
 	ros::NodeHandle ctrl_nh_;							///< 向外暴露的控制接口命名空间
@@ -239,16 +273,12 @@ private:
 	/** -----------------向外暴露的控制接口--------------------- */
 
 	/** -----------------------话题订阅者--------------------- */
-	ros::Subscriber takeoff_cmd_sub_;
-	ros::Subscriber land_cmd_sub_;
-	ros::Subscriber return_cmd_sub_;
-	ros::Subscriber position_cmd_sub_;
-	ros::Subscriber velocity_cmd_sub_;
-	ros::Subscriber attitude_cmd_sub_;
-	ros::Subscriber trajectory_cmd_sub_;
-	ros::Subscriber complex_cmd_sub_;
-	
-	/** -----------------------服务提供者--------------------- */
+  ros::Subscriber velocity_cmd_envelope_sub_;
+  ros::Subscriber attitude_cmd_envelope_sub_;
+  ros::Subscriber trajectory_envelope_sub_;
+  ros::Subscriber complex_cmd_envelope_sub_;
+		
+		/** -----------------------服务提供者--------------------- */
   ros::ServiceServer takeoff_srv_;
   ros::ServiceServer land_srv_;
   ros::ServiceServer return_srv_;
@@ -267,6 +297,8 @@ private:
     bool active_return_target_valid_{false};
     bool land_after_return_pending_{false};
     ros::Time return_hover_start_time_{};
+    std::map<uint8_t, ControlSourcePolicy> control_source_policies_{};
+    ActiveControlSource active_control_source_{};
 };
 
 } // namespace sunray_fsm

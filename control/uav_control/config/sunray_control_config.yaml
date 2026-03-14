@@ -3,7 +3,7 @@
 uav_name: uav
 # 无人机序号
 uav_id: 1
-# -------------------请注意，以下参数均加载到uav_name+uav_id命名空间下-----------------------
+# -------------------请注意，后续所有参数均加载到uav_name+uav_id命名空间下-----------------------
 # 无人机质量
 mass_kg: 0.96
 # 重力加速度
@@ -22,6 +22,30 @@ fuse_odom_to_px4: true
 fust_odom_type: 0
 # 融合的频率(建议设定在30-50Hz之间，如果链路富裕可以提高到80-100)
 fuse_odom_frequency: 50
+# 轨迹参考类型 0:flat_output(微分平坦轨迹) 1:se3(全位姿轨迹)
+trajectory_type: 0
+# -------------------高频控制源仲裁参数-----------------------
+# 高频topic控制统一通过 envelope meta 进入状态机仲裁
+# 低频service命令(起飞/降落/返航/单次位置控制)会直接打断当前高频控制源
+control_sources:
+  default:
+    priority: 0
+    timeout: 0.5
+  api:
+    priority: 20
+    timeout: 0.5
+  planner:
+    priority: 40
+    timeout: 0.5
+  mission:
+    priority: 50
+    timeout: 0.5
+  rc:
+    priority: 100
+    timeout: 0.2
+  safety:
+    priority: 255
+    timeout: 0.1
 # -------------------保护参数-----------------------
 # 最低电压
 low_voltage: 13.2 # 4S battery
@@ -57,6 +81,12 @@ electronic_fence:
   y_min: -4.0
   z_max: 2.0
   z_min: 0.0 #如果你的使用场景中，起飞点并不是最低点，可以考虑酌情修改
+# -------------------高级速度控制模式电子围栏参数-----------------------
+# 该参数表示在使用高级速度控制时，无人机以当前位置为中心，构造空间矩形，当无人机跃过该空间矩形时切换到悬停模式，如果无法切换为悬停模式则切换到降落模式，如果降落模式也无法切换则切换为紧急降落模式
+velocity_electronic_fence:
+  x: 1.0
+  y: 1.0
+  z: 1.0
 # -------------------消息超时参数-----------------------
 msg_timeout:
   # 里程计
@@ -83,7 +113,8 @@ max_velocity_with_rc:
   x_vel: 1.0
   y_vel: 1.0
   z_vel: 1.0
-
+# 在进行yaw(偏航)角的调整时最大的速度(角度/秒)(deg/s)
+yaw_rate: 30
 
 # -------------------控制器参数-----------------------
 # -----------px4_position_controller----------------

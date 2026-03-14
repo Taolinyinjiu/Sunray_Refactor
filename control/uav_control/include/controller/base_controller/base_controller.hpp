@@ -24,11 +24,14 @@
 #include <nav_msgs/Odometry.h>
 #include <ros/ros.h>
 #include <sensor_msgs/Imu.h>
+#include <uav_control/Trajectory.h>
 
 #include <Eigen/Dense>
 
 #include "control_data_types/control_data_types.h"
+#include "control_msg_types/trajectory_point.hpp"
 #include "control_data_types/uav_state_estimate.hpp"
+#include "trajectory_buffer/trajectory_buffer.h"
 
 namespace uav_control {
 
@@ -129,7 +132,14 @@ public:
    * @param trajectory 期望轨迹点（位置/速度/加速度/yaw 等）。
    * @return true 写入成功。
    */
-  virtual bool set_trajectory(const TrajectoryPoint &trajectory);
+  virtual bool set_trajectory(const uav_control::TrajectoryPoint &trajectory);
+
+  /**
+   * @brief 设置多点轨迹参考输入。
+   * @param trajectory 轨迹消息，支持单点与多点。
+   * @return true 写入成功；false 轨迹非法。
+   */
+  virtual bool set_trajectory(const uav_control::Trajectory &trajectory);
 
   /**
    * @brief 获取控制器内部状态机状态。
@@ -142,6 +152,13 @@ public:
    * @return true 已锁存；false 尚未锁存。
    */
   virtual bool has_home_position() const;
+
+	/**
+   * @brief 更新home点，用于状态机返航接口
+   * @return true 修改成功；false 修改失败
+   */
+	virtual bool update_home_position(Eigen::Vector3d position) const ;
+	virtual bool update_home_position(Eigen::Vector3d position,double yaw) const ;
 
   /**
    * @brief 获取锁存的起飞 home 点。
@@ -176,6 +193,12 @@ public:
   virtual bool is_emergency_completed() const;
 
   /**
+   * @brief 判定多点轨迹是否已经执行完成。
+   * @return true 表示当前活动轨迹已到末端；false 表示尚未完成。
+   */
+  virtual bool is_trajectory_completed() const;
+
+  /**
    * @brief 控制器通用就绪状态检查。
    * @return true 控制器已就绪；false 控制器还未就绪。
    * @details 建议覆盖检查项包括参数合法性、输入时效性、状态有效性等。
@@ -190,6 +213,9 @@ public:
   virtual ControllerOutput update(void) = 0;
 
 protected:
+  void reset_trajectory_tracking();
+  bool update_trajectory_reference_from_buffer(const ros::Time &now);
+
   /** ---------------基本参数----------------- */
 
   /** @brief 控制器就绪状态。 */
@@ -281,7 +307,11 @@ protected:
 
   /** ---------------运动参数----------------- */
   /** @brief 当前控制参考轨迹点。 */
-  TrajectoryPoint trajectory_;
+  uav_control::TrajectoryPoint trajectory_;
+  TrajectoryBufferManager trajectory_buffer_{};
+  bool trajectory_tracking_enabled_{false};
+  bool trajectory_completed_{false};
+  uint32_t next_trajectory_id_{1U};
 
   /** @brief 控制器内部状态机当前状态。 */
   ControllerState controller_state_ = ControllerState::UNDEFINED;
