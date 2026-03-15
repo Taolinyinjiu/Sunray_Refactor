@@ -416,6 +416,18 @@ bool Base_Controller::is_land_completed() const {
   return false;
 }
 
+bool Base_Controller::is_touchdown_detected() const {
+  return !land_touchdown_detected_time_.isZero();
+}
+
+double Base_Controller::get_touchdown_elapsed_s(const ros::Time &now) const {
+  if (land_touchdown_detected_time_.isZero() ||
+      now < land_touchdown_detected_time_) {
+    return 0.0;
+  }
+  return (now - land_touchdown_detected_time_).toSec();
+}
+
 /**
  * @brief 默认紧急降落完成判定。
  *

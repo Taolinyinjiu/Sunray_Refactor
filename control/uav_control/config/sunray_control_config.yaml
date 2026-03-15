@@ -175,6 +175,10 @@ sunray_attitude_controller:
   land_near_ground_speed_scale: 1.6
   # z参考允许略低于地面的偏置，用于抵消地效(m)
   land_reference_margin_m: 0.05
+  # 进入近地末段后，相对悬停油门额外压低的推力裕度
+  land_near_ground_thrust_margin: 0.04
+  # 触地锁存后，相对悬停油门额外压低的更强推力裕度
+  land_touchdown_thrust_margin: 0.10
 
 # ----------rl_raptor_controller---------------
 # 基本的思路是修改px4代码，uorb消息 -> mavlink -> mavros消息 <- sunray_control

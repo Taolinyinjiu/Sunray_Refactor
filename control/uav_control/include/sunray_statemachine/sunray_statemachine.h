@@ -134,6 +134,13 @@ private:
                                      const ros::Time &now);
   bool is_px4_landed_hold_satisfied_locked(const ros::Time &now) const;
   double get_px4_landed_hold_elapsed_s_locked(const ros::Time &now) const;
+  void update_controller_touchdown_hold_locked(SunrayState state,
+                                               bool touchdown_detected,
+                                               const ros::Time &now);
+  bool is_controller_touchdown_hold_satisfied_locked(
+      const ros::Time &now) const;
+  double get_controller_touchdown_hold_elapsed_s_locked(
+      const ros::Time &now) const;
   void publish_fsm_state();
 		// 控制器更新函数，包含（控制器里程计注入+控制器期望位置更新+控制器输出量更新）
   void controller_update_timer_cb(const ros::TimerEvent &);
@@ -304,6 +311,7 @@ private:
     bool land_after_return_pending_{false};
     ros::Time return_hover_start_time_{};
     ros::Time px4_landed_hold_start_time_{};
+    ros::Time controller_touchdown_hold_start_time_{};
     double px4_landed_hold_required_s_{3.0};
     std::map<uint8_t, ControlSourcePolicy> control_source_policies_{};
     ActiveControlSource active_control_source_{};

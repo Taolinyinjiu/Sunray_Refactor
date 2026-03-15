@@ -125,6 +125,12 @@ bool Attitude_Controller::load_param(ros::NodeHandle &nh) {
   nh.param("sunray_attitude_controller/land_reference_margin_m",
            ctrl_param_.land_reference_margin_m,
            ctrl_param_.land_reference_margin_m);
+  nh.param("sunray_attitude_controller/land_near_ground_thrust_margin",
+           ctrl_param_.land_near_ground_thrust_margin,
+           ctrl_param_.land_near_ground_thrust_margin);
+  nh.param("sunray_attitude_controller/land_touchdown_thrust_margin",
+           ctrl_param_.land_touchdown_thrust_margin,
+           ctrl_param_.land_touchdown_thrust_margin);
 
   if (!(ctrl_param_.controller_update_hz > 0.0)) {
     ctrl_param_.controller_update_hz = 100.0;
@@ -163,12 +169,20 @@ bool Attitude_Controller::load_param(ros::NodeHandle &nh) {
       std::max(1.0, ctrl_param_.land_near_ground_speed_scale);
   ctrl_param_.land_reference_margin_m =
       std::max(0.0, ctrl_param_.land_reference_margin_m);
+  ctrl_param_.land_near_ground_thrust_margin =
+      std::max(0.0, ctrl_param_.land_near_ground_thrust_margin);
+  ctrl_param_.land_touchdown_thrust_margin =
+      std::max(ctrl_param_.land_near_ground_thrust_margin,
+               ctrl_param_.land_touchdown_thrust_margin);
 
   ROS_INFO(
       "[Attitude_Controller] params loaded: mass=%.3f gravity=%.3f "
-      "hover_percent=%.3f tilt_max_deg=%.1f hz=%.1f",
+      "hover_percent=%.3f tilt_max_deg=%.1f hz=%.1f "
+      "land_thrust_margin=(%.3f, %.3f)",
       ctrl_param_.mass_kg, ctrl_param_.gravity_mps2, ctrl_param_.hover_percent,
-      tilt_angle_max_deg, ctrl_param_.controller_update_hz);
+      tilt_angle_max_deg, ctrl_param_.controller_update_hz,
+      ctrl_param_.land_near_ground_thrust_margin,
+      ctrl_param_.land_touchdown_thrust_margin);
   return true;
 }
 
@@ -375,6 +389,63 @@ ControllerOutput Attitude_Controller::solve_attitude_thrust(
   output.thrust =
       std::max(ctrl_param_.min_command_thrust, std::min(1.0, u1 / full_thrust));
   return output;
+}
+
+double Attitude_Controller::compute_land_thrust_cap(
+    bool near_ground, bool touchdown_latched) const {
+  if (!near_ground && !touchdown_latched) {
+    return 1.0;
+  }
+
+  double thrust_margin = 0.0;
+  if (near_ground) {
+    thrust_margin = ctrl_param_.land_near_ground_thrust_margin;
+    if (ground_reference_initialized_) {
+      const double height_window_m =
+          std::max(0.02, land_touchdown_height_threshold_m_);
+      const double height_above_ground =
+          std::max(0.0, uav_current_state_.position.z() - ground_reference_z_);
+      const double progress = std::max(
+          0.0, std::min(1.0, 1.0 - height_above_ground / height_window_m));
+      thrust_margin +=
+          progress *
+          std::max(0.0, ctrl_param_.land_touchdown_thrust_margin -
+                            ctrl_param_.land_near_ground_thrust_margin);
+    }
+  }
+
+  if (touchdown_latched) {
+    thrust_margin =
+        std::max(thrust_margin, ctrl_param_.land_touchdown_thrust_margin);
+  }
+
+  return std::max(ctrl_param_.min_command_thrust,
+                  std::min(1.0, ctrl_param_.hover_percent - thrust_margin));
+}
+
+void Attitude_Controller::apply_land_thrust_shaping(ControllerOutput *output,
+                                                    bool near_ground,
+                                                    bool touchdown_latched) const {
+  if (output == nullptr ||
+      !output->is_channel_enabled(ControllerOutputMask::THRUST) ||
+      (!near_ground && !touchdown_latched)) {
+    return;
+  }
+
+  const double thrust_cap =
+      compute_land_thrust_cap(near_ground, touchdown_latched);
+  const double raw_thrust = output->thrust;
+  output->thrust =
+      std::max(ctrl_param_.min_command_thrust, std::min(raw_thrust, thrust_cap));
+
+  if (output->thrust + 1e-4 < raw_thrust) {
+    ROS_INFO_THROTTLE(
+        1.0,
+        "[Attitude_Controller] LAND thrust shaping: raw=%.3f capped=%.3f "
+        "near_ground=%d touchdown=%d",
+        raw_thrust, output->thrust, near_ground ? 1 : 0,
+        touchdown_latched ? 1 : 0);
+  }
 }
 
 ControllerOutput Attitude_Controller::handle_undefined_state() {
@@ -599,7 +670,9 @@ ControllerOutput Attitude_Controller::handle_land_state() {
     desired_state.position = land_expect_position_;
     desired_state.velocity =
         Eigen::Vector3d(0.0, 0.0, -touchdown_downpress_speed);
-    return solve_attitude_thrust(desired_state, false);
+    ControllerOutput output = solve_attitude_thrust(desired_state, false);
+    apply_land_thrust_shaping(&output, true, true);
+    return output;
   }
 
   if (landed_detected) {
@@ -616,7 +689,9 @@ ControllerOutput Attitude_Controller::handle_land_state() {
     desired_state.position = land_expect_position_;
     desired_state.velocity =
         Eigen::Vector3d(0.0, 0.0, -touchdown_downpress_speed);
-    return solve_attitude_thrust(desired_state, false);
+    ControllerOutput output = solve_attitude_thrust(desired_state, false);
+    apply_land_thrust_shaping(&output, true, true);
+    return output;
   }
 
   const double ex = land_expect_position_.x() - uav_current_state_.position.x();
@@ -625,7 +700,9 @@ ControllerOutput Attitude_Controller::handle_land_state() {
       clamp_symmetric(land_xy_kp_ * ex, land_max_velocity_xy_mps_);
   desired_state.velocity.y() =
       clamp_symmetric(land_xy_kp_ * ey, land_max_velocity_xy_mps_);
-  return solve_attitude_thrust(desired_state, true);
+  ControllerOutput output = solve_attitude_thrust(desired_state, true);
+  apply_land_thrust_shaping(&output, near_ground, false);
+  return output;
 }
 
 } // namespace uav_control

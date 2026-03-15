@@ -280,9 +280,30 @@ void Sunray_StateMachine::update_px4_landed_hold_locked(
   }
 }
 
+void Sunray_StateMachine::update_controller_touchdown_hold_locked(
+    SunrayState state, bool touchdown_detected, const ros::Time &now) {
+  const bool landing_state = (state == SunrayState::LAND ||
+                              state == SunrayState::EMERGENCY_LAND);
+  if (!landing_state || !touchdown_detected) {
+    controller_touchdown_hold_start_time_ = ros::Time(0);
+    return;
+  }
+
+  if (controller_touchdown_hold_start_time_.isZero() ||
+      now < controller_touchdown_hold_start_time_) {
+    controller_touchdown_hold_start_time_ = now;
+  }
+}
+
 bool Sunray_StateMachine::is_px4_landed_hold_satisfied_locked(
     const ros::Time &now) const {
   return get_px4_landed_hold_elapsed_s_locked(now) >=
+         px4_landed_hold_required_s_;
+}
+
+bool Sunray_StateMachine::is_controller_touchdown_hold_satisfied_locked(
+    const ros::Time &now) const {
+  return get_controller_touchdown_hold_elapsed_s_locked(now) >=
          px4_landed_hold_required_s_;
 }
 
@@ -292,6 +313,15 @@ double Sunray_StateMachine::get_px4_landed_hold_elapsed_s_locked(
     return 0.0;
   }
   return (now - px4_landed_hold_start_time_).toSec();
+}
+
+double Sunray_StateMachine::get_controller_touchdown_hold_elapsed_s_locked(
+    const ros::Time &now) const {
+  if (controller_touchdown_hold_start_time_.isZero() ||
+      now < controller_touchdown_hold_start_time_) {
+    return 0.0;
+  }
+  return (now - controller_touchdown_hold_start_time_).toSec();
 }
 
 bool Sunray_StateMachine::accept_control_meta_locked(
@@ -719,6 +749,7 @@ void Sunray_StateMachine::update_slow() {
   bool request_return_completed = false;
   bool request_land_after_return = false;
   bool request_disarm = false;
+  bool use_controller_touchdown_fallback = false;
   bool position_completed = false;
   bool trajectory_completed = false;
   double timeout_odom_s = 0.0;
@@ -730,14 +761,25 @@ void Sunray_StateMachine::update_slow() {
   const bool px4_landed =
       px4_state.landed_state == px4_data_types::LandedState::kOnGround;
   bool px4_landed_hold_satisfied = false;
+  bool controller_touchdown_hold_satisfied = false;
   {
     std::lock_guard<std::mutex> lock(fsm_mutex_);
     update_px4_landed_hold_locked(fsm_current_state_, px4_landed, now);
+    const bool controller_touchdown_detected =
+        sunray_controller_ && sunray_controller_->is_touchdown_detected();
+    update_controller_touchdown_hold_locked(fsm_current_state_,
+                                            controller_touchdown_detected, now);
     px4_landed_hold_satisfied = is_px4_landed_hold_satisfied_locked(now);
+    controller_touchdown_hold_satisfied =
+        is_controller_touchdown_hold_satisfied_locked(now);
+    const bool landing_confirmed =
+        px4_landed_hold_satisfied || controller_touchdown_hold_satisfied;
     const bool landing_state = (fsm_current_state_ == SunrayState::LAND ||
                                 fsm_current_state_ == SunrayState::EMERGENCY_LAND);
-    request_disarm =
-        landing_state && px4_landed_hold_satisfied && px4_state.armed;
+    request_disarm = landing_state && landing_confirmed && px4_state.armed;
+    use_controller_touchdown_fallback =
+        request_disarm && !px4_landed_hold_satisfied &&
+        controller_touchdown_hold_satisfied;
     timeout_odom_s = fsm_param_config_.timeout_odom_s;
     if (!check_health_locked() &&
         fsm_current_state_ != SunrayState::EMERGENCY_LAND) {
@@ -824,6 +866,13 @@ void Sunray_StateMachine::update_slow() {
     (void)handle_event(SunrayEvent::LAND_REQUEST);
   }
 
+  if (use_controller_touchdown_fallback) {
+    ROS_WARN_THROTTLE(
+        1.0,
+        "[SunrayFSM] PX4 landed_state unavailable, use controller touchdown "
+        "fallback for disarm/finalize");
+  }
+
   if (request_disarm && !ensure_disarm()) {
     ROS_WARN_THROTTLE(
         1.0,
@@ -836,10 +885,12 @@ void Sunray_StateMachine::update_slow() {
     std::lock_guard<std::mutex> lock(fsm_mutex_);
     need_auto_land_mode = should_use_px4_auto_land_locked();
     need_offboard = requires_offboard_locked();
+    const bool landing_confirmed =
+        px4_landed_hold_satisfied || controller_touchdown_hold_satisfied;
     const bool landing_finalize_pending =
         (fsm_current_state_ == SunrayState::LAND ||
          fsm_current_state_ == SunrayState::EMERGENCY_LAND) &&
-        (px4_landed_hold_satisfied || !px4_state.armed);
+        (landing_confirmed || !px4_state.armed);
     if (landing_finalize_pending) {
       need_auto_land_mode = false;
       need_offboard = false;
@@ -863,18 +914,20 @@ void Sunray_StateMachine::update_slow() {
   {
     std::lock_guard<std::mutex> lock(fsm_mutex_);
     fsm_state = fsm_current_state_;
-	    if (sunray_controller_) {
-	      if (fsm_state == SunrayState::TAKEOFF) {
-	        takeoff_completed = sunray_controller_->is_takeoff_completed();
-	      } else if (fsm_state == SunrayState::LAND) {
-	        land_completed = px4_landed_hold_satisfied && !px4_state.armed;
-	      } else if (fsm_state == SunrayState::EMERGENCY_LAND) {
-	        emergency_completed = px4_landed_hold_satisfied && !px4_state.armed;
-	      } else if (fsm_state == SunrayState::TRAJECTORY_CONTROL) {
-	        trajectory_completed = sunray_controller_->is_trajectory_completed();
-	      }
-	    }
-	  }
+    if (sunray_controller_) {
+      const bool landing_confirmed =
+          px4_landed_hold_satisfied || controller_touchdown_hold_satisfied;
+      if (fsm_state == SunrayState::TAKEOFF) {
+        takeoff_completed = sunray_controller_->is_takeoff_completed();
+      } else if (fsm_state == SunrayState::LAND) {
+        land_completed = landing_confirmed && !px4_state.armed;
+      } else if (fsm_state == SunrayState::EMERGENCY_LAND) {
+        emergency_completed = landing_confirmed && !px4_state.armed;
+      } else if (fsm_state == SunrayState::TRAJECTORY_CONTROL) {
+        trajectory_completed = sunray_controller_->is_trajectory_completed();
+      }
+    }
+  }
 
   if (takeoff_completed) {
     (void)handle_event(SunrayEvent::TAKEOFF_COMPLETED);
@@ -907,7 +960,10 @@ void Sunray_StateMachine::update_fast() {
   bool external_odom_fresh = false;
   bool auto_land_requested = false;
   bool px4_landed_hold_satisfied = false;
+  bool controller_touchdown_hold_satisfied = false;
+  bool controller_touchdown_detected = false;
   double px4_landed_hold_elapsed_s = 0.0;
+  double controller_touchdown_hold_elapsed_s = 0.0;
   {
     std::lock_guard<std::mutex> lock(fsm_mutex_);
     controller = sunray_controller_;
@@ -933,6 +989,13 @@ void Sunray_StateMachine::update_fast() {
     control_output = controller->update();
     controller_state = controller->get_current_state();
     controller_phase = controller->get_controller_state();
+    controller_touchdown_detected = controller->is_touchdown_detected();
+    update_controller_touchdown_hold_locked(fsm_state,
+                                            controller_touchdown_detected, now);
+    controller_touchdown_hold_satisfied =
+        is_controller_touchdown_hold_satisfied_locked(now);
+    controller_touchdown_hold_elapsed_s =
+        get_controller_touchdown_hold_elapsed_s_locked(now);
   }
 
   if (!external_odom_fresh &&
@@ -953,24 +1016,28 @@ void Sunray_StateMachine::update_fast() {
           uav_control::ControllerOutputMask::THRUST);
   // 如果不存在有效输出
   if (!has_effective_output) {
+    const bool landing_confirmed =
+        px4_landed_hold_satisfied || controller_touchdown_hold_satisfied;
     if (fsm_state == SunrayState::LAND && auto_land_requested) {
-      if (px4_landed_hold_satisfied) {
+      if (landing_confirmed) {
         arbiter_.clear(
             uav_control::Sunray_Control_Arbiter::ControlSource::EXTERNAL);
       } else {
         ROS_WARN_THROTTLE(
             1.0,
-            "[SunrayFSM] wait PX4 landed hold before clear at LAND/AUTO.LAND: "
-            "px4_landed=%d hold=%.2f/%.2f",
+            "[SunrayFSM] wait landing confirmation before clear at "
+            "LAND/AUTO.LAND: px4_landed=%d px4_hold=%.2f/%.2f "
+            "ctrl_touchdown=%d ctrl_hold=%.2f/%.2f",
             px4_landed ? 1 : 0, px4_landed_hold_elapsed_s,
-            px4_landed_hold_required_s_);
+            px4_landed_hold_required_s_, controller_touchdown_detected ? 1 : 0,
+            controller_touchdown_hold_elapsed_s, px4_landed_hold_required_s_);
       }
       return;
     }
     if ((fsm_state == SunrayState::LAND ||
          fsm_state == SunrayState::EMERGENCY_LAND) &&
         controller_phase == uav_control::ControllerState::OFF) {
-      if (px4_landed_hold_satisfied) {
+      if (landing_confirmed) {
         const auto source =
             (fsm_state == SunrayState::EMERGENCY_LAND)
                 ? uav_control::Sunray_Control_Arbiter::ControlSource::EMERGENCY
@@ -979,10 +1046,12 @@ void Sunray_StateMachine::update_fast() {
       } else {
         ROS_WARN_THROTTLE(
             1.0,
-            "[SunrayFSM] controller is OFF in %s, but wait PX4 landed hold "
-            "before clear: px4_landed=%d hold=%.2f/%.2f",
+            "[SunrayFSM] controller is OFF in %s, but wait landing "
+            "confirmation before clear: px4_landed=%d px4_hold=%.2f/%.2f "
+            "ctrl_touchdown=%d ctrl_hold=%.2f/%.2f",
             to_string(fsm_state), px4_landed ? 1 : 0, px4_landed_hold_elapsed_s,
-            px4_landed_hold_required_s_);
+            px4_landed_hold_required_s_, controller_touchdown_detected ? 1 : 0,
+            controller_touchdown_hold_elapsed_s, px4_landed_hold_required_s_);
       }
       return;
     }
