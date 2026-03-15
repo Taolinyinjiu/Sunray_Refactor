@@ -536,6 +536,12 @@ ControllerOutput Attitude_Controller::handle_land_state() {
       ground_reference_initialized_ &&
       (uav_current_state_.position.z() <=
        ground_reference_z_ + land_touchdown_height_threshold_m_);
+  const double touchdown_latch_height_threshold_m =
+      std::max(0.03, std::min(0.08, land_touchdown_height_threshold_m_));
+  const bool touchdown_height_reached =
+      ground_reference_initialized_ &&
+      (uav_current_state_.position.z() <=
+       ground_reference_z_ + touchdown_latch_height_threshold_m);
   const bool velocity_low =
       std::abs(uav_current_state_.velocity.x()) <
           land_touchdown_velocity_threshold_mps_ &&
@@ -544,7 +550,7 @@ ControllerOutput Attitude_Controller::handle_land_state() {
       std::abs(uav_current_state_.velocity.z()) <
           land_touchdown_velocity_threshold_mps_;
 
-  if (near_ground && velocity_low) {
+  if (touchdown_height_reached && velocity_low) {
     if (land_low_velocity_start_time_.isZero()) {
       land_low_velocity_start_time_ = now;
     }
@@ -553,7 +559,7 @@ ControllerOutput Attitude_Controller::handle_land_state() {
   }
 
   const bool landed_by_velocity =
-      near_ground && !land_low_velocity_start_time_.isZero() &&
+      touchdown_height_reached && !land_low_velocity_start_time_.isZero() &&
       (now - land_low_velocity_start_time_).toSec() >=
           land_touchdown_velocity_hold_time_s_;
   const bool landed_detected = px4_land_status_ || landed_by_velocity;
