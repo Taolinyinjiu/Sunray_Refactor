@@ -432,9 +432,14 @@ double Attitude_Controller::compute_land_thrust_cap(
     return 1.0;
   }
 
+  if (touchdown_latched) {
+    return std::max(ctrl_param_.min_command_thrust,
+                    std::min(1.0, ctrl_param_.hover_percent -
+                                      ctrl_param_.land_touchdown_thrust_margin));
+  }
+
   double thrust_margin = 0.0;
   if (near_ground) {
-    thrust_margin = ctrl_param_.land_near_ground_thrust_margin;
     if (ground_reference_initialized_) {
       const double height_window_m =
           std::max(0.02, land_touchdown_height_threshold_m_);
@@ -442,16 +447,10 @@ double Attitude_Controller::compute_land_thrust_cap(
           std::max(0.0, uav_current_state_.position.z() - ground_reference_z_);
       const double progress = std::max(
           0.0, std::min(1.0, 1.0 - height_above_ground / height_window_m));
-      thrust_margin +=
-          progress *
-          std::max(0.0, ctrl_param_.land_touchdown_thrust_margin -
-                            ctrl_param_.land_near_ground_thrust_margin);
+      thrust_margin = progress * ctrl_param_.land_near_ground_thrust_margin;
+    } else {
+      thrust_margin = 0.5 * ctrl_param_.land_near_ground_thrust_margin;
     }
-  }
-
-  if (touchdown_latched) {
-    thrust_margin =
-        std::max(thrust_margin, ctrl_param_.land_touchdown_thrust_margin);
   }
 
   return std::max(ctrl_param_.min_command_thrust,
@@ -672,39 +671,38 @@ ControllerOutput Attitude_Controller::handle_land_state() {
 
   const double nominal_descent_speed =
       std::max(0.1, std::abs(land_max_velocity_));
-  const double stronger_descent_speed =
+  const double touchdown_downpress_speed =
       std::min(std::max(nominal_descent_speed *
                             ctrl_param_.land_near_ground_speed_scale,
                         std::abs(land_touchdown_downpress_speed_mps_)),
                std::max(std::abs(velocity_max_.z()), nominal_descent_speed));
-  const double commanded_descent_speed =
-      landed_detected ? stronger_descent_speed
-                      : (near_ground ? stronger_descent_speed
-                                     : nominal_descent_speed);
 
   const double reference_floor =
       ground_reference_initialized_
           ? (ground_reference_z_ - std::max(0.0, ctrl_param_.land_reference_margin_m))
           : (uav_current_state_.position.z() -
              std::max(0.0, ctrl_param_.land_reference_margin_m));
-  const double touchdown_downpress_speed =
-      std::max(stronger_descent_speed,
-               std::abs(land_touchdown_downpress_speed_mps_));
   land_expect_position_.z() =
       std::max(reference_floor,
-               land_expect_position_.z() - commanded_descent_speed * dt);
+               land_expect_position_.z() - nominal_descent_speed * dt);
 
   DesiredState desired_state;
   desired_state.position = land_expect_position_;
   desired_state.yaw = land_yaw_;
-  desired_state.velocity.z() = -commanded_descent_speed;
+  desired_state.velocity.z() = 0.0;
 
   const bool touchdown_latched = !land_touchdown_detected_time_.isZero();
   if (touchdown_latched) {
+    const double touchdown_elapsed_s =
+        (now - land_touchdown_detected_time_).toSec();
+    const bool touchdown_downpress_active =
+        touchdown_elapsed_s <= land_touchdown_downpress_time_s_;
     land_expect_position_.z() = reference_floor;
     desired_state.position = land_expect_position_;
     desired_state.velocity =
-        Eigen::Vector3d(0.0, 0.0, -touchdown_downpress_speed);
+        Eigen::Vector3d(0.0, 0.0,
+                        touchdown_downpress_active ? -touchdown_downpress_speed
+                                                   : 0.0);
     ControllerOutput output = solve_attitude_thrust(desired_state, false);
     apply_land_thrust_shaping(&output, true, true);
     return output;

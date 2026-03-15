@@ -83,6 +83,25 @@ Eigen::Quaterniond quat_from_yaw(double yaw) {
   return Eigen::Quaterniond(Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()));
 }
 
+double yaw_from_quat(const Eigen::Quaterniond &q) {
+  Eigen::Quaterniond normalized = q;
+  if (!std::isfinite(normalized.w()) || !std::isfinite(normalized.x()) ||
+      !std::isfinite(normalized.y()) || !std::isfinite(normalized.z()) ||
+      normalized.norm() < 1e-9) {
+    normalized = Eigen::Quaterniond::Identity();
+  } else {
+    normalized.normalize();
+  }
+
+  const double siny_cosp =
+      2.0 * (normalized.w() * normalized.z() +
+             normalized.x() * normalized.y());
+  const double cosy_cosp =
+      1.0 - 2.0 * (normalized.y() * normalized.y() +
+                   normalized.z() * normalized.z());
+  return std::atan2(siny_cosp, cosy_cosp);
+}
+
 Eigen::Vector3d rpy_from_quat(const Eigen::Quaterniond &q) {
   Eigen::Quaterniond normalized = q;
   if (!std::isfinite(normalized.w()) || !std::isfinite(normalized.x()) ||
@@ -585,7 +604,7 @@ bool Sunray_Helper::wait_for_yaw_reached(double target_yaw, double timeout_s) {
 
   while (ros::ok() && ros::WallTime::now() <= deadline) {
     ros::spinOnce();
-    const double current_yaw = wrap_to_pi(get_uav_attitude_rpy_rad().z());
+    const double current_yaw = wrap_to_pi(get_uav_yaw_rad());
     if (angular_distance(current_yaw, wrapped_target_yaw) <=
         yaw_reached_tolerance_rad_) {
       ROS_INFO("[Sunray_Helper] yaw reached: current=%.3f target=%.3f tol=%.3f",
@@ -595,7 +614,7 @@ bool Sunray_Helper::wait_for_yaw_reached(double target_yaw, double timeout_s) {
     rate.sleep();
   }
 
-  const double current_yaw = wrap_to_pi(get_uav_attitude_rpy_rad().z());
+  const double current_yaw = wrap_to_pi(get_uav_yaw_rad());
   ROS_WARN("Sunray_Helper: wait for yaw timeout, current=%.3f target=%.3f "
            "tol=%.3f timeout=%.3f",
            current_yaw, wrapped_target_yaw, yaw_reached_tolerance_rad_,
@@ -1158,8 +1177,7 @@ bool Sunray_Helper::set_yaw_adjust_async(double adjust_yaw) {
   envelope.payload.yaw = adjust_yaw;
   attitude_cmd_pub_.publish(envelope);
 
-  const Eigen::Vector3d rpy = get_uav_attitude_rpy_rad();
-  const double yaw = rpy.z() + adjust_yaw;
+  const double yaw = get_uav_yaw_rad() + adjust_yaw;
   uav_target_.timestamp = ros::Time::now();
   uav_target_.coordinate_frame =
       uav_control::UAVStateEstimate::CoordinateFrame::LOCAL;
@@ -1169,7 +1187,7 @@ bool Sunray_Helper::set_yaw_adjust_async(double adjust_yaw) {
 }
 
 bool Sunray_Helper::set_yaw_adjust_block(double adjust_yaw) {
-  const double target_yaw = wrap_to_pi(get_uav_attitude_rpy_rad().z() + adjust_yaw);
+  const double target_yaw = wrap_to_pi(get_uav_yaw_rad() + adjust_yaw);
   if (!set_yaw_adjust_async(adjust_yaw)) {
     return false;
   }
@@ -1315,6 +1333,14 @@ Eigen::Vector3d Sunray_Helper::get_uav_attitude_rpy_deg() {
   return get_uav_attitude_rpy_rad() * (180.0 / M_PI);
 }
 
+double Sunray_Helper::get_uav_yaw_rad() {
+  return yaw_from_quat(get_uav_odometry().orientation);
+}
+
+double Sunray_Helper::get_uav_yaw_deg() {
+  return get_uav_yaw_rad() * (180.0 / M_PI);
+}
+
 Eigen::Quaterniond Sunray_Helper::get_uav_attitude_quat() {
   return get_uav_odometry().orientation;
 }
@@ -1337,6 +1363,14 @@ Eigen::Vector3d Sunray_Helper::get_target_attitude_rpy_rad() {
 
 Eigen::Vector3d Sunray_Helper::get_target_attitude_rpy_deg() {
   return get_target_attitude_rpy_rad() * (180.0 / M_PI);
+}
+
+double Sunray_Helper::get_target_yaw_rad() {
+  return yaw_from_quat(uav_target_.orientation);
+}
+
+double Sunray_Helper::get_target_yaw_deg() {
+  return get_target_yaw_rad() * (180.0 / M_PI);
 }
 
 Eigen::Quaterniond Sunray_Helper::get_target_attitude_quat() {

@@ -17,7 +17,7 @@ int main(int argc, char **argv) {
 
   ros::Duration(1.0).sleep();
   const Eigen::Vector3d origin = robot_group.raw_helper().get_uav_position();
-  const double initial_yaw = robot_group.raw_helper().get_uav_attitude_rpy_rad().z();
+  const double initial_yaw = robot_group.raw_helper().get_uav_yaw_rad();
 
   const Eigen::Vector3d start = origin + Eigen::Vector3d(-1, 1, 0);
   ROS_INFO("[%s] move_to_square_start", tag);

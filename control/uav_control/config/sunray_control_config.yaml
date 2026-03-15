@@ -173,11 +173,11 @@ sunray_attitude_controller:
   # 触地/近地末段的增强下压速度(m/s)
   land_touchdown_downpress_speed_mps: 0.35
   land_touchdown_downpress_time_s: 1.0
-  # 近地末段相对常规下降速度的放大倍数
+  # 触地短暂收尾阶段相对常规下降速度的放大倍数
   land_near_ground_speed_scale: 1.6
   # z参考允许略低于地面的偏置，用于抵消地效(m)
   land_reference_margin_m: 0.05
-  # 进入近地末段后，相对悬停油门额外压低的推力裕度
+  # 进入近地末段后，随高度连续增加的推力压低裕度
   land_near_ground_thrust_margin: 0.04
   # 触地锁存后，相对悬停油门额外压低的更强推力裕度
   land_touchdown_thrust_margin: 0.10
