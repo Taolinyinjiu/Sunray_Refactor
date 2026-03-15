@@ -266,6 +266,34 @@ void Sunray_StateMachine::clear_active_control_source_locked() {
   active_control_source_ = ActiveControlSource();
 }
 
+void Sunray_StateMachine::update_px4_landed_hold_locked(
+    SunrayState state, bool px4_landed, const ros::Time &now) {
+  const bool landing_state = (state == SunrayState::LAND ||
+                              state == SunrayState::EMERGENCY_LAND);
+  if (!landing_state || !px4_landed) {
+    px4_landed_hold_start_time_ = ros::Time(0);
+    return;
+  }
+
+  if (px4_landed_hold_start_time_.isZero() || now < px4_landed_hold_start_time_) {
+    px4_landed_hold_start_time_ = now;
+  }
+}
+
+bool Sunray_StateMachine::is_px4_landed_hold_satisfied_locked(
+    const ros::Time &now) const {
+  return get_px4_landed_hold_elapsed_s_locked(now) >=
+         px4_landed_hold_required_s_;
+}
+
+double Sunray_StateMachine::get_px4_landed_hold_elapsed_s_locked(
+    const ros::Time &now) const {
+  if (px4_landed_hold_start_time_.isZero() || now < px4_landed_hold_start_time_) {
+    return 0.0;
+  }
+  return (now - px4_landed_hold_start_time_).toSec();
+}
+
 bool Sunray_StateMachine::accept_control_meta_locked(
     const uav_control::ControlMeta &meta, SunrayState requested_state,
     ros::Time *stamp, double *timeout_s, int *priority, std::string *reason) {
@@ -700,8 +728,13 @@ void Sunray_StateMachine::update_slow() {
   const ros::Time now = ros::Time::now();
   const px4_data_types::SystemState px4_state =
       px4_data_reader_.get_system_state();
+  const bool px4_landed =
+      px4_state.landed_state == px4_data_types::LandedState::kOnGround;
+  bool px4_landed_hold_satisfied = false;
   {
     std::lock_guard<std::mutex> lock(fsm_mutex_);
+    update_px4_landed_hold_locked(fsm_current_state_, px4_landed, now);
+    px4_landed_hold_satisfied = is_px4_landed_hold_satisfied_locked(now);
     timeout_odom_s = fsm_param_config_.timeout_odom_s;
     if (!check_health_locked() &&
         fsm_current_state_ != SunrayState::EMERGENCY_LAND) {
@@ -735,9 +768,7 @@ void Sunray_StateMachine::update_slow() {
 
     if (fsm_current_state_ == SunrayState::LAND) {
       auto_land_requested = should_use_px4_auto_land_locked();
-      if (auto_land_requested &&
-          (px4_state.landed_state == px4_data_types::LandedState::kOnGround ||
-           !px4_state.armed)) {
+      if (auto_land_requested && px4_landed_hold_satisfied) {
         auto_land_completed = true;
       }
     }
@@ -828,9 +859,12 @@ void Sunray_StateMachine::update_slow() {
 	        takeoff_completed = sunray_controller_->is_takeoff_completed();
 	      } else if (fsm_state == SunrayState::LAND) {
 	        land_completed = auto_land_completed ||
-	                         sunray_controller_->is_land_completed();
+	                         (sunray_controller_->is_land_completed() &&
+	                          px4_landed_hold_satisfied);
 	      } else if (fsm_state == SunrayState::EMERGENCY_LAND) {
-	        emergency_completed = sunray_controller_->is_emergency_completed();
+	        emergency_completed =
+	            sunray_controller_->is_emergency_completed() &&
+	            px4_landed_hold_satisfied;
 	      } else if (fsm_state == SunrayState::TRAJECTORY_CONTROL) {
 	        trajectory_completed = sunray_controller_->is_trajectory_completed();
 	      }
@@ -853,8 +887,11 @@ void Sunray_StateMachine::update_slow() {
 }
 
 void Sunray_StateMachine::update_fast() {
+  const ros::Time now = ros::Time::now();
   const px4_data_types::SystemState px4_state =
       px4_data_reader_.get_system_state();
+  const bool px4_landed =
+      px4_state.landed_state == px4_data_types::LandedState::kOnGround;
 
   std::shared_ptr<uav_control::Base_Controller> controller;
   SunrayState fsm_state = SunrayState::OFF;
@@ -864,6 +901,8 @@ void Sunray_StateMachine::update_fast() {
   uav_control::ControllerOutput control_output;
   bool external_odom_fresh = false;
   bool auto_land_requested = false;
+  bool px4_landed_hold_satisfied = false;
+  double px4_landed_hold_elapsed_s = 0.0;
   {
     std::lock_guard<std::mutex> lock(fsm_mutex_);
     controller = sunray_controller_;
@@ -873,10 +912,12 @@ void Sunray_StateMachine::update_fast() {
     }
 
     fsm_state = fsm_current_state_;
+    update_px4_landed_hold_locked(fsm_state, px4_landed, now);
+    px4_landed_hold_satisfied = is_px4_landed_hold_satisfied_locked(now);
+    px4_landed_hold_elapsed_s = get_px4_landed_hold_elapsed_s_locked(now);
     (void)controller->set_px4_arm_state(px4_state.armed);
-    (void)controller->set_px4_land_status(
-        px4_state.landed_state == px4_data_types::LandedState::kOnGround);
-    external_odom_fresh = has_fresh_external_odom_locked(ros::Time::now());
+    (void)controller->set_px4_land_status(px4_landed);
+    external_odom_fresh = has_fresh_external_odom_locked(now);
     auto_land_requested = should_use_px4_auto_land_locked();
     if (external_odom_fresh) {
       (void)controller->set_current_odom(latest_external_odom_);
@@ -908,18 +949,36 @@ void Sunray_StateMachine::update_fast() {
   // 如果不存在有效输出
   if (!has_effective_output) {
     if (fsm_state == SunrayState::LAND && auto_land_requested) {
-      arbiter_.clear(
-          uav_control::Sunray_Control_Arbiter::ControlSource::EXTERNAL);
+      if (px4_landed_hold_satisfied) {
+        arbiter_.clear(
+            uav_control::Sunray_Control_Arbiter::ControlSource::EXTERNAL);
+      } else {
+        ROS_WARN_THROTTLE(
+            1.0,
+            "[SunrayFSM] wait PX4 landed hold before clear at LAND/AUTO.LAND: "
+            "px4_landed=%d hold=%.2f/%.2f",
+            px4_landed ? 1 : 0, px4_landed_hold_elapsed_s,
+            px4_landed_hold_required_s_);
+      }
       return;
     }
     if ((fsm_state == SunrayState::LAND ||
          fsm_state == SunrayState::EMERGENCY_LAND) &&
         controller_phase == uav_control::ControllerState::OFF) {
-      const auto source =
-          (fsm_state == SunrayState::EMERGENCY_LAND)
-              ? uav_control::Sunray_Control_Arbiter::ControlSource::EMERGENCY
-              : uav_control::Sunray_Control_Arbiter::ControlSource::EXTERNAL;
-      arbiter_.clear(source);
+      if (px4_landed_hold_satisfied) {
+        const auto source =
+            (fsm_state == SunrayState::EMERGENCY_LAND)
+                ? uav_control::Sunray_Control_Arbiter::ControlSource::EMERGENCY
+                : uav_control::Sunray_Control_Arbiter::ControlSource::EXTERNAL;
+        arbiter_.clear(source);
+      } else {
+        ROS_WARN_THROTTLE(
+            1.0,
+            "[SunrayFSM] controller is OFF in %s, but wait PX4 landed hold "
+            "before clear: px4_landed=%d hold=%.2f/%.2f",
+            to_string(fsm_state), px4_landed ? 1 : 0, px4_landed_hold_elapsed_s,
+            px4_landed_hold_required_s_);
+      }
       return;
     }
     // 如果当前控制器的状态为OFF状态，那就没什么事儿，直接结束就行

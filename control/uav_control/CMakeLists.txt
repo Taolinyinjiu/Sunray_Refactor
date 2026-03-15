@@ -327,6 +327,15 @@ target_link_libraries(sunray_robot_group_pentagram_demo_node
 )
 add_dependencies(sunray_robot_group_pentagram_demo_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
+add_executable(rc_offboard_exit_guard_node
+  src/demo/rc_offboard_exit_guard_node.cpp
+)
+target_link_libraries(rc_offboard_exit_guard_node
+  ${catkin_LIBRARIES}
+  ${EIGEN3_LIBRARIES}
+)
+add_dependencies(rc_offboard_exit_guard_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
 add_executable(sunray_fsm_node
   src/demo/sunray_fsm_node.cpp
 )
@@ -380,6 +389,7 @@ catkin_install_python(PROGRAMS
   scripts/load_param.py
   scripts/gazebo_model_states_to_odom.py
   scripts/gen_fsm_diagram.py
+  scripts/mock_rc_in.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
