@@ -60,6 +60,25 @@ std::string resolve_uav_namespace(ros::NodeHandle &nh) {
   return name + std::to_string(id);
 }
 
+template <typename T>
+void load_helper_param(const ros::NodeHandle &local_nh,
+                       const ros::NodeHandle *helper_cfg_nh,
+                       const ros::NodeHandle *uav_cfg_nh,
+                       const std::string &name, T *value) {
+  if (!value) {
+    return;
+  }
+  if (local_nh.getParam(name, *value)) {
+    return;
+  }
+  if (helper_cfg_nh && helper_cfg_nh->getParam(name, *value)) {
+    return;
+  }
+  if (uav_cfg_nh) {
+    (void)uav_cfg_nh->getParam(name, *value);
+  }
+}
+
 Eigen::Quaterniond quat_from_yaw(double yaw) {
   return Eigen::Quaterniond(Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()));
 }
@@ -272,22 +291,43 @@ void warn_helper_api_unavailable(const char *api_name, const char *reason) {
 } // namespace
 
 Sunray_Helper::Sunray_Helper(ros::NodeHandle &nh) : nh_(nh) {
-  nh_.param("takeoff_wait_s", takeoff_wait_timeout_s_, takeoff_wait_timeout_s_);
-  nh_.param("takeoff_block_timeout_s", takeoff_wait_timeout_s_,
-            takeoff_wait_timeout_s_);
-  nh_.param("position_reached_tolerance_m", position_reached_tolerance_m_,
-            position_reached_tolerance_m_);
-  nh_.param("move_wait_s", block_wait_timeout_s_, block_wait_timeout_s_);
-  nh_.param("block_wait_timeout_s", block_wait_timeout_s_, block_wait_timeout_s_);
-  nh_.param("land_wait_s", land_wait_timeout_s_, land_wait_timeout_s_);
-  nh_.param("land_block_timeout_s", land_wait_timeout_s_, land_wait_timeout_s_);
-  nh_.param("wait_poll_hz", wait_poll_hz_, wait_poll_hz_);
-  nh_.param("yaw_reached_tolerance_rad", yaw_reached_tolerance_rad_,
-            yaw_reached_tolerance_rad_);
-  nh_.param("trajectory_nominal_speed_mps", trajectory_nominal_speed_mps_,
-            trajectory_nominal_speed_mps_);
-
   uav_ns_ = resolve_uav_namespace(nh_);
+  const std::unique_ptr<ros::NodeHandle> helper_cfg_nh =
+      uav_ns_.empty()
+          ? nullptr
+          : std::unique_ptr<ros::NodeHandle>(
+                new ros::NodeHandle("/" + uav_ns_ + "/sunray_helper"));
+  const std::unique_ptr<ros::NodeHandle> uav_cfg_nh =
+      uav_ns_.empty()
+          ? nullptr
+          : std::unique_ptr<ros::NodeHandle>(
+                new ros::NodeHandle("/" + uav_ns_));
+
+  load_helper_param(nh_, helper_cfg_nh.get(), uav_cfg_nh.get(),
+                    "takeoff_wait_s", &takeoff_wait_timeout_s_);
+  load_helper_param(nh_, helper_cfg_nh.get(), uav_cfg_nh.get(),
+                    "takeoff_block_timeout_s", &takeoff_wait_timeout_s_);
+  load_helper_param(nh_, helper_cfg_nh.get(), uav_cfg_nh.get(),
+                    "position_reached_tolerance_m",
+                    &position_reached_tolerance_m_);
+  load_helper_param(nh_, helper_cfg_nh.get(), uav_cfg_nh.get(), "move_wait_s",
+                    &block_wait_timeout_s_);
+  load_helper_param(nh_, helper_cfg_nh.get(), uav_cfg_nh.get(),
+                    "block_wait_timeout_s", &block_wait_timeout_s_);
+  load_helper_param(nh_, helper_cfg_nh.get(), uav_cfg_nh.get(), "land_wait_s",
+                    &land_wait_timeout_s_);
+  load_helper_param(nh_, helper_cfg_nh.get(), uav_cfg_nh.get(),
+                    "land_block_timeout_s", &land_wait_timeout_s_);
+  load_helper_param(nh_, helper_cfg_nh.get(), uav_cfg_nh.get(),
+                    "land_confirm_wait_s", &land_confirm_timeout_s_);
+  load_helper_param(nh_, helper_cfg_nh.get(), uav_cfg_nh.get(), "wait_poll_hz",
+                    &wait_poll_hz_);
+  load_helper_param(nh_, helper_cfg_nh.get(), uav_cfg_nh.get(),
+                    "yaw_reached_tolerance_rad", &yaw_reached_tolerance_rad_);
+  load_helper_param(nh_, helper_cfg_nh.get(), uav_cfg_nh.get(),
+                    "trajectory_nominal_speed_mps",
+                    &trajectory_nominal_speed_mps_);
+
   const std::string ctrl_ns =
       uav_ns_.empty() ? "/sunray_control" : ("/" + uav_ns_ + "/sunray_control");
   ctrl_nh_ = ros::NodeHandle(ctrl_ns);
@@ -468,12 +508,33 @@ bool Sunray_Helper::wait_for_landed(double timeout_s) {
 
   const px4_data_types::SystemState system_state =
       px4_data_reader_->get_system_state();
+  const Eigen::Vector3d current_position = get_uav_position();
   ROS_WARN(
       "Sunray_Helper: wait for landing timeout, armed=%d landed_state=%d "
-      "timeout=%.3f",
+      "current=(%.3f, %.3f, %.3f) timeout=%.3f",
       static_cast<int>(system_state.armed),
-      static_cast<int>(system_state.landed_state), effective_timeout_s);
+      static_cast<int>(system_state.landed_state), current_position.x(),
+      current_position.y(), current_position.z(), effective_timeout_s);
   return false;
+}
+
+void Sunray_Helper::confirm_landed_best_effort(double timeout_s,
+                                               const char *context) {
+  if (wait_for_landed(timeout_s)) {
+    return;
+  }
+
+  const Eigen::Vector3d current_position = get_uav_position();
+  const Eigen::Vector3d current_velocity = get_uav_velocity_linear();
+  const sunray_fsm::SunrayState fsm_state = get_statemachine_state();
+  ROS_WARN(
+      "Sunray_Helper: %s completed by FSM state, but PX4 landing confirmation "
+      "did not arrive in time; fsm=%s current=(%.3f, %.3f, %.3f) "
+      "vel=(%.3f, %.3f, %.3f)",
+      context ? context : "landing",
+      fsm_state_to_string(fsm_state), current_position.x(), current_position.y(),
+      current_position.z(), current_velocity.x(), current_velocity.y(),
+      current_velocity.z());
 }
 
 bool Sunray_Helper::wait_for_yaw_reached(double target_yaw, double timeout_s) {
@@ -517,7 +578,8 @@ bool Sunray_Helper::wait_for_return_completed(double timeout_s) {
   if (!wait_for_fsm_state(sunray_fsm::SunrayState::OFF, effective_timeout_s)) {
     return false;
   }
-  return wait_for_landed(2.0);
+  confirm_landed_best_effort(land_confirm_timeout_s_, "return");
+  return true;
 }
 
 bool Sunray_Helper::takeoff_async() {
@@ -600,7 +662,8 @@ bool Sunray_Helper::land_block(int land_type, double land_max_velocity) {
                             land_wait_timeout_s_)) {
       return false;
     }
-    return wait_for_landed(1.0);
+    confirm_landed_best_effort(land_confirm_timeout_s_, "land");
+    return true;
   }
   return false;
 }

@@ -1,5 +1,6 @@
 #include "sunray_statemachine/sunray_statemachine.h"
 #include "controller/px4_position_controller/px4_position_controller.h"
+#include "controller/sunray_attitude_controller/sunray_attitude_controller.hpp"
 #include <algorithm>
 #include <cmath>
 namespace {
@@ -361,9 +362,7 @@ bool Sunray_StateMachine::register_controller(int controller_types) {
     selected_controller = std::make_shared<uav_control::Position_Controller>();
     break;
   case 2:
-    ROS_WARN("[SunrayFSM] controller_type=2 reserved, fallback to type=0 "
-             "(PX4 position controller)");
-    selected_controller = std::make_shared<uav_control::Position_Controller>();
+    selected_controller = std::make_shared<uav_control::Attitude_Controller>();
     break;
   case 3:
     ROS_WARN("[SunrayFSM] controller_type=3 reserved, fallback to type=0 "
@@ -383,6 +382,20 @@ bool Sunray_StateMachine::register_controller(int controller_types) {
               "instance failed (type=%d)",
               controller_types);
     return false;
+  }
+
+  if (controller_types == 2) {
+    const std::string config_ns = uav_ns_.empty() ? "" : ("/" + uav_ns_);
+    ros::NodeHandle cfg_nh =
+        config_ns.empty() ? nh_ : ros::NodeHandle(config_ns);
+    std::shared_ptr<uav_control::Attitude_Controller> attitude_controller =
+        std::dynamic_pointer_cast<uav_control::Attitude_Controller>(
+            selected_controller);
+    if (!attitude_controller || !attitude_controller->load_param(cfg_nh)) {
+      ROS_ERROR("[SunrayFSM] register_controller failed: "
+                "sunray_attitude_controller load_param failed");
+      return false;
+    }
   }
 
   sunray_controller_ = selected_controller;
@@ -846,6 +859,8 @@ void Sunray_StateMachine::update_fast() {
   std::shared_ptr<uav_control::Base_Controller> controller;
   SunrayState fsm_state = SunrayState::OFF;
   uav_control::UAVStateEstimate controller_state;
+  uav_control::ControllerState controller_phase =
+      uav_control::ControllerState::UNDEFINED;
   uav_control::ControllerOutput control_output;
   bool external_odom_fresh = false;
   bool auto_land_requested = false;
@@ -871,6 +886,7 @@ void Sunray_StateMachine::update_fast() {
     // (void)controller->set_px4_attitude(const sensor_msgs::Imu &imu_msg);
     control_output = controller->update();
     controller_state = controller->get_current_state();
+    controller_phase = controller->get_controller_state();
   }
 
   if (!external_odom_fresh &&
@@ -894,6 +910,16 @@ void Sunray_StateMachine::update_fast() {
     if (fsm_state == SunrayState::LAND && auto_land_requested) {
       arbiter_.clear(
           uav_control::Sunray_Control_Arbiter::ControlSource::EXTERNAL);
+      return;
+    }
+    if ((fsm_state == SunrayState::LAND ||
+         fsm_state == SunrayState::EMERGENCY_LAND) &&
+        controller_phase == uav_control::ControllerState::OFF) {
+      const auto source =
+          (fsm_state == SunrayState::EMERGENCY_LAND)
+              ? uav_control::Sunray_Control_Arbiter::ControlSource::EMERGENCY
+              : uav_control::Sunray_Control_Arbiter::ControlSource::EXTERNAL;
+      arbiter_.clear(source);
       return;
     }
     // 如果当前控制器的状态为OFF状态，那就没什么事儿，直接结束就行

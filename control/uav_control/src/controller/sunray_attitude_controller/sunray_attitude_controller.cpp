@@ -110,9 +110,18 @@ bool Attitude_Controller::load_param(ros::NodeHandle &nh) {
   if (!(ctrl_param_.gravity_mps2 > 0.0)) {
     ctrl_param_.gravity_mps2 = 9.81;
   }
+  if (ctrl_param_.gravity_mps2 > 0.0 && ctrl_param_.gravity_mps2 < 2.0) {
+    ROS_WARN(
+        "[Attitude_Controller] gravity=%.3f looks like 'g' units, convert to "
+        "%.3f m/s^2 for thrust model compatibility",
+        ctrl_param_.gravity_mps2, ctrl_param_.gravity_mps2 * 10.0);
+    ctrl_param_.gravity_mps2 *= 10.0;
+  }
   if (!(ctrl_param_.hover_percent > 0.0)) {
     ctrl_param_.hover_percent = 0.37;
   }
+  ctrl_param_.hover_percent =
+      std::max(1e-3, std::min(1.0, ctrl_param_.hover_percent));
 
   ROS_INFO(
       "[Attitude_Controller] params loaded: mass=%.3f gravity=%.3f "
@@ -237,10 +246,11 @@ ControllerOutput Attitude_Controller::solve_attitude_thrust(
 
   for (int i = 0; i < 3; ++i) {
     if (std::abs(pos_error[i]) > ctrl_param_.max_position_error_m) {
-      pos_error[i] = (pos_error[i] > 0.0) ? 1.0 : -1.0;
+      pos_error[i] = clamp_symmetric(pos_error[i], ctrl_param_.max_position_error_m);
     }
     if (std::abs(vel_error[i]) > ctrl_param_.max_velocity_error_mps) {
-      vel_error[i] = (vel_error[i] > 0.0) ? 2.0 : -2.0;
+      vel_error[i] =
+          clamp_symmetric(vel_error[i], ctrl_param_.max_velocity_error_mps);
     }
   }
 
@@ -448,7 +458,7 @@ ControllerOutput Attitude_Controller::handle_move_state() {
 }
 
 ControllerOutput Attitude_Controller::handle_land_state() {
-  if (land_type_ == 1U) {
+  if (controller_state_ == ControllerState::LAND && land_type_ == 1U) {
     return ControllerOutput();
   }
 
@@ -507,6 +517,7 @@ ControllerOutput Attitude_Controller::handle_land_state() {
     if ((now - land_touchdown_detected_time_).toSec() >=
         land_touchdown_downpress_time_s_) {
       controller_state_ = ControllerState::OFF;
+      reset_integrator();
     }
     return solve_attitude_thrust(desired_state, false);
   }

@@ -210,6 +210,8 @@ private:
   bool wait_for_yaw_reached(double target_yaw, double timeout_s);
   // 等待降落结束
   bool wait_for_landed(double timeout_s);
+  // 在 FSM 已完成后，尽力确认 PX4 landed/disarmed，但不再作为硬失败条件
+  void confirm_landed_best_effort(double timeout_s, const char *context);
   // 等待返航流程完整结束（包含返航后的降落）
   bool wait_for_return_completed(double timeout_s);
 
@@ -223,6 +225,7 @@ private:
   double position_reached_tolerance_m_{0.1};
   double block_wait_timeout_s_{10.0};
   double land_wait_timeout_s_{20.0};
+  double land_confirm_timeout_s_{3.0};
   double wait_poll_hz_{20.0};
   double yaw_reached_tolerance_rad_{0.0872664626};
   double trajectory_nominal_speed_mps_{0.5};

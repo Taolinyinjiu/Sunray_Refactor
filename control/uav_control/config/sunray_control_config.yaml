@@ -7,9 +7,9 @@ uav_id: 1
 # 无人机质量
 mass_kg: 0.96
 # 重力加速度
-gravity: 0.98
+gravity: 9.8
 # 控制器类型 0:px4_position_controller 1:px4_velocity_controller 2:sunray_attitude_controller 3:rl_raptor_controller
-controller_types: 0
+controller_types: 2
 # 控制器更新频率(Hz)
 controller_update_frequency: 100
 # 状态机低频监督循环频率(Hz)
@@ -72,6 +72,17 @@ takeoff_max_velocity: 0.5
 land_type: 0
 # 降落过程中的最大速度
 land_max_velocity: 0.5
+# -------------------Helper 阻塞接口等待参数-----------------------
+# 起飞阻塞接口等待 FSM 进入 HOVER 的超时时间
+takeoff_wait_s: 30.0
+# 单点/返航中间段等阻塞接口的默认等待时间
+move_wait_s: 30.0
+# 降落/返航阻塞接口等待 FSM 完成的超时时间
+land_wait_s: 30.0
+# FSM 已完成后，额外等待 PX4 landed/disarmed 确认的时间
+land_confirm_wait_s: 3.0
+# Helper 内部轮询等待频率
+wait_poll_hz: 20.0
 # -------------------电子围栏参数-----------------------
 # 使用ROS标准右手系，X正方向超机头前方，Y正方向朝机头左侧，Z轴朝上
 electronic_fence:
@@ -99,9 +110,9 @@ msg_timeout:
   battery: 0.5
 # -------------------位置误差容许参数-----------------------
 error_tolerance:
-  pos_x: 0.2
-  pos_y: 0.2
-  pos_z: 0.2
+  pos_x: 0.08
+  pos_y: 0.08
+  pos_z: 0.08
 # -------------------飞行速度参数-----------------------
 # 最大飞行速度(m/s)
 max_velocity:

@@ -186,6 +186,7 @@ add_library(uav_controller_lib
   src/utils/curve/quintic_curve.cpp
   src/controller/base_controller/base_controller.cpp
   src/controller/px4_position_controller/px4_position_controller.cpp
+  src/controller/sunray_attitude_controller/sunray_attitude_controller.cpp
 )
 target_link_libraries(uav_controller_lib
   control_data_types_lib
@@ -225,6 +226,16 @@ target_link_libraries(sunray_helper_demo_node
   ${EIGEN3_LIBRARIES}
 )
 add_dependencies(sunray_helper_demo_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+
+add_executable(sunray_attitude_smoke_demo_node
+  src/demo/sunray_attitude_smoke_demo_node.cpp
+)
+target_link_libraries(sunray_attitude_smoke_demo_node
+  sunray_helper_lib
+  ${catkin_LIBRARIES}
+  ${EIGEN3_LIBRARIES}
+)
+add_dependencies(sunray_attitude_smoke_demo_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 add_executable(sunray_robot_group_demo_node
   src/demo/sunray_robot_group_demo_node.cpp
