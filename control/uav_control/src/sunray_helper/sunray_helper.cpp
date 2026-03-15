@@ -84,7 +84,38 @@ Eigen::Quaterniond quat_from_yaw(double yaw) {
 }
 
 Eigen::Vector3d rpy_from_quat(const Eigen::Quaterniond &q) {
-  return q.toRotationMatrix().eulerAngles(0, 1, 2);
+  Eigen::Quaterniond normalized = q;
+  if (!std::isfinite(normalized.w()) || !std::isfinite(normalized.x()) ||
+      !std::isfinite(normalized.y()) || !std::isfinite(normalized.z()) ||
+      normalized.norm() < 1e-9) {
+    normalized = Eigen::Quaterniond::Identity();
+  } else {
+    normalized.normalize();
+  }
+
+  const double sinr_cosp =
+      2.0 * (normalized.w() * normalized.x() +
+             normalized.y() * normalized.z());
+  const double cosr_cosp =
+      1.0 - 2.0 * (normalized.x() * normalized.x() +
+                   normalized.y() * normalized.y());
+  const double roll = std::atan2(sinr_cosp, cosr_cosp);
+
+  const double sinp =
+      2.0 * (normalized.w() * normalized.y() -
+             normalized.z() * normalized.x());
+  const double pitch =
+      std::asin(std::max(-1.0, std::min(1.0, sinp)));
+
+  const double siny_cosp =
+      2.0 * (normalized.w() * normalized.z() +
+             normalized.x() * normalized.y());
+  const double cosy_cosp =
+      1.0 - 2.0 * (normalized.y() * normalized.y() +
+                   normalized.z() * normalized.z());
+  const double yaw = std::atan2(siny_cosp, cosy_cosp);
+
+  return Eigen::Vector3d(roll, pitch, yaw);
 }
 
 double wrap_to_pi(double angle) {
