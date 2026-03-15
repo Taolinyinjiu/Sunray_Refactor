@@ -151,6 +151,8 @@ px4_velocity_controller_gains:
 # ----------sunray_attitude_controller---------------
 sunray_attitude_controller:
   hover_percent: 0.37
+  # 姿态-推力输出的最小推力，需允许降落末段进入 0.0x 区间
+  min_command_thrust: 0.02
   pxy_int_max: 10.0
   pz_int_max: 10.0
   Kp_xy: 3.

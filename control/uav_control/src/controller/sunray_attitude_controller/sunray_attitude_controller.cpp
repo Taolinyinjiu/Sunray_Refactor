@@ -78,6 +78,8 @@ bool Attitude_Controller::load_param(ros::NodeHandle &nh) {
 
   nh.param("sunray_attitude_controller/hover_percent",
            ctrl_param_.hover_percent, ctrl_param_.hover_percent);
+  nh.param("sunray_attitude_controller/min_command_thrust",
+           ctrl_param_.min_command_thrust, ctrl_param_.min_command_thrust);
 
   double pxy_int_max = ctrl_param_.int_max.x();
   double pz_int_max = ctrl_param_.int_max.z();
@@ -153,6 +155,8 @@ bool Attitude_Controller::load_param(ros::NodeHandle &nh) {
   }
   ctrl_param_.hover_percent =
       std::max(1e-3, std::min(1.0, ctrl_param_.hover_percent));
+  ctrl_param_.min_command_thrust =
+      std::max(0.0, std::min(1.0, ctrl_param_.min_command_thrust));
   land_xy_kp_ = std::max(0.0, land_xy_kp_);
   land_max_velocity_xy_mps_ = std::max(0.0, land_max_velocity_xy_mps_);
   land_touchdown_velocity_threshold_mps_ =
@@ -177,10 +181,11 @@ bool Attitude_Controller::load_param(ros::NodeHandle &nh) {
 
   ROS_INFO(
       "[Attitude_Controller] params loaded: mass=%.3f gravity=%.3f "
-      "hover_percent=%.3f tilt_max_deg=%.1f hz=%.1f "
+      "hover_percent=%.3f min_thrust=%.3f tilt_max_deg=%.1f hz=%.1f "
       "land_thrust_margin=(%.3f, %.3f)",
       ctrl_param_.mass_kg, ctrl_param_.gravity_mps2, ctrl_param_.hover_percent,
-      tilt_angle_max_deg, ctrl_param_.controller_update_hz,
+      ctrl_param_.min_command_thrust, tilt_angle_max_deg,
+      ctrl_param_.controller_update_hz,
       ctrl_param_.land_near_ground_thrust_margin,
       ctrl_param_.land_touchdown_thrust_margin);
   return true;
