@@ -170,6 +170,7 @@ private:
    * @return true 当前已满足；false 尚未满足。# 
    */
   bool ensure_offboard_and_arm();
+  bool ensure_disarm();
   bool ensure_auto_land_mode();
   void load_control_source_policies(ros::NodeHandle &cfg_nh);
   bool accept_control_meta_locked(const uav_control::ControlMeta &meta,

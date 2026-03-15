@@ -718,8 +718,7 @@ void Sunray_StateMachine::update_slow() {
   bool report_control_source_timeout = false;
   bool request_return_completed = false;
   bool request_land_after_return = false;
-  bool auto_land_requested = false;
-  bool auto_land_completed = false;
+  bool request_disarm = false;
   bool position_completed = false;
   bool trajectory_completed = false;
   double timeout_odom_s = 0.0;
@@ -735,6 +734,10 @@ void Sunray_StateMachine::update_slow() {
     std::lock_guard<std::mutex> lock(fsm_mutex_);
     update_px4_landed_hold_locked(fsm_current_state_, px4_landed, now);
     px4_landed_hold_satisfied = is_px4_landed_hold_satisfied_locked(now);
+    const bool landing_state = (fsm_current_state_ == SunrayState::LAND ||
+                                fsm_current_state_ == SunrayState::EMERGENCY_LAND);
+    request_disarm =
+        landing_state && px4_landed_hold_satisfied && px4_state.armed;
     timeout_odom_s = fsm_param_config_.timeout_odom_s;
     if (!check_health_locked() &&
         fsm_current_state_ != SunrayState::EMERGENCY_LAND) {
@@ -765,14 +768,6 @@ void Sunray_StateMachine::update_slow() {
       return_hover_start_time_ = ros::Time(0);
       request_land_after_return = true;
     }
-
-    if (fsm_current_state_ == SunrayState::LAND) {
-      auto_land_requested = should_use_px4_auto_land_locked();
-      if (auto_land_requested && px4_landed_hold_satisfied) {
-        auto_land_completed = true;
-      }
-    }
-
     if (is_active_control_source_expired_locked(now)) {
       report_control_source_timeout = true;
       expired_source_id = active_control_source_.source_id;
@@ -829,12 +824,26 @@ void Sunray_StateMachine::update_slow() {
     (void)handle_event(SunrayEvent::LAND_REQUEST);
   }
 
+  if (request_disarm && !ensure_disarm()) {
+    ROS_WARN_THROTTLE(
+        1.0,
+        "[SunrayFSM] waiting for PX4 disarm after landed hold confirmation");
+  }
+
   bool need_auto_land_mode = false;
   bool need_offboard = false;
   {
     std::lock_guard<std::mutex> lock(fsm_mutex_);
     need_auto_land_mode = should_use_px4_auto_land_locked();
     need_offboard = requires_offboard_locked();
+    const bool landing_finalize_pending =
+        (fsm_current_state_ == SunrayState::LAND ||
+         fsm_current_state_ == SunrayState::EMERGENCY_LAND) &&
+        (px4_landed_hold_satisfied || !px4_state.armed);
+    if (landing_finalize_pending) {
+      need_auto_land_mode = false;
+      need_offboard = false;
+    }
   }
 
   if (need_auto_land_mode) {
@@ -858,13 +867,9 @@ void Sunray_StateMachine::update_slow() {
 	      if (fsm_state == SunrayState::TAKEOFF) {
 	        takeoff_completed = sunray_controller_->is_takeoff_completed();
 	      } else if (fsm_state == SunrayState::LAND) {
-	        land_completed = auto_land_completed ||
-	                         (sunray_controller_->is_land_completed() &&
-	                          px4_landed_hold_satisfied);
+	        land_completed = px4_landed_hold_satisfied && !px4_state.armed;
 	      } else if (fsm_state == SunrayState::EMERGENCY_LAND) {
-	        emergency_completed =
-	            sunray_controller_->is_emergency_completed() &&
-	            px4_landed_hold_satisfied;
+	        emergency_completed = px4_landed_hold_satisfied && !px4_state.armed;
 	      } else if (fsm_state == SunrayState::TRAJECTORY_CONTROL) {
 	        trajectory_completed = sunray_controller_->is_trajectory_completed();
 	      }
@@ -1230,6 +1235,41 @@ bool Sunray_StateMachine::ensure_offboard_and_arm() {
   return true;
 }
 
+bool Sunray_StateMachine::ensure_disarm() {
+  const px4_data_types::SystemState px4_state =
+      px4_data_reader_.get_system_state();
+
+  if (!px4_state.connected) {
+    ROS_WARN_THROTTLE(1.0, "[SunrayFSM] PX4 is not connected");
+    return false;
+  }
+
+  if (!px4_arming_client_.isValid()) {
+    ROS_WARN_THROTTLE(1.0, "[SunrayFSM] mavros arming client is not ready");
+    return false;
+  }
+
+  if (!px4_state.armed) {
+    return true;
+  }
+
+  const ros::Time now = ros::Time::now();
+  if (px4_offboard_retry_state_.last_disarm_req_time.isZero() ||
+      (now - px4_offboard_retry_state_.last_disarm_req_time).toSec() >=
+          px4_offboard_retry_state_.disarm_retry_interval_s) {
+    mavros_msgs::CommandBool arm_cmd;
+    arm_cmd.request.value = false;
+    if (px4_arming_client_.call(arm_cmd) && arm_cmd.response.success) {
+      ROS_INFO("[SunrayFSM] DISARM request sent");
+    } else {
+      ROS_WARN_THROTTLE(1.0, "[SunrayFSM] DISARM request failed");
+    }
+    px4_offboard_retry_state_.last_disarm_req_time = now;
+  }
+
+  return false;
+}
+
 bool Sunray_StateMachine::ensure_auto_land_mode() {
   const px4_data_types::SystemState px4_state =
       px4_data_reader_.get_system_state();
@@ -1449,6 +1489,7 @@ bool Sunray_StateMachine::apply_state_entry_action_locked(
 
   switch (next_state) {
   case SunrayState::TAKEOFF:
+    px4_offboard_retry_state_.last_disarm_req_time = ros::Time(0);
     clear_active_control_source_locked();
     active_return_target_valid_ = false;
     land_after_return_pending_ = false;
@@ -1457,6 +1498,7 @@ bool Sunray_StateMachine::apply_state_entry_action_locked(
         fsm_param_config_.takeoff_height_m,
         fsm_param_config_.takeoff_max_vel_mps);
   case SunrayState::LAND:
+    px4_offboard_retry_state_.last_disarm_req_time = ros::Time(0);
     clear_active_control_source_locked();
     active_return_target_valid_ = false;
     land_after_return_pending_ = false;
@@ -1466,6 +1508,7 @@ bool Sunray_StateMachine::apply_state_entry_action_locked(
         fsm_param_config_.land_max_vel_mps);
     return sunray_controller_->set_land_mode();
   case SunrayState::EMERGENCY_LAND:
+    px4_offboard_retry_state_.last_disarm_req_time = ros::Time(0);
     clear_active_control_source_locked();
     active_return_target_valid_ = false;
     land_after_return_pending_ = false;
@@ -1503,6 +1546,7 @@ bool Sunray_StateMachine::apply_state_entry_action_locked(
              "yet");
     return false;
   case SunrayState::OFF:
+    px4_offboard_retry_state_.last_disarm_req_time = ros::Time(0);
     clear_active_control_source_locked();
     active_return_target_valid_ = false;
     land_after_return_pending_ = false;

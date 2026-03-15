@@ -514,11 +514,6 @@ ControllerOutput Attitude_Controller::handle_land_state() {
     }
     desired_state.velocity =
         Eigen::Vector3d(0.0, 0.0, -std::abs(land_touchdown_downpress_speed_mps_));
-    if ((now - land_touchdown_detected_time_).toSec() >=
-        land_touchdown_downpress_time_s_) {
-      controller_state_ = ControllerState::OFF;
-      reset_integrator();
-    }
     return solve_attitude_thrust(desired_state, false);
   }
 
