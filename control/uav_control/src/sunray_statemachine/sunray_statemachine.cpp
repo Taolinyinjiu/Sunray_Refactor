@@ -1140,15 +1140,29 @@ bool Sunray_StateMachine::requires_offboard_locked() const {
   case SunrayState::TAKEOFF:
   case SunrayState::HOVER:
   case SunrayState::RETURN:
-    case SunrayState::EMERGENCY_LAND:
   case SunrayState::POSITION_CONTROL:
   case SunrayState::VELOCITY_CONTROL:
   case SunrayState::ATTITUDE_CONTROL:
   case SunrayState::COMPLEX_CONTROL:
   case SunrayState::TRAJECTORY_CONTROL:
     return true;
+  case SunrayState::EMERGENCY_LAND:
+    if (sunray_controller_ &&
+        sunray_controller_->get_controller_state() ==
+            uav_control::ControllerState::OFF) {
+      return false;
+    }
+    return true;
   case SunrayState::LAND:
-    return !should_use_px4_auto_land_locked();
+    if (should_use_px4_auto_land_locked()) {
+      return false;
+    }
+    if (sunray_controller_ &&
+        sunray_controller_->get_controller_state() ==
+            uav_control::ControllerState::OFF) {
+      return false;
+    }
+    return true;
   case SunrayState::OFF:
   default:
     return false;
