@@ -575,6 +575,9 @@ ControllerOutput Attitude_Controller::handle_land_state() {
           ? (ground_reference_z_ - std::max(0.0, ctrl_param_.land_reference_margin_m))
           : (uav_current_state_.position.z() -
              std::max(0.0, ctrl_param_.land_reference_margin_m));
+  const double touchdown_downpress_speed =
+      std::max(stronger_descent_speed,
+               std::abs(land_touchdown_downpress_speed_mps_));
   land_expect_position_.z() =
       std::max(reference_floor,
                land_expect_position_.z() - commanded_descent_speed * dt);
@@ -584,9 +587,19 @@ ControllerOutput Attitude_Controller::handle_land_state() {
   desired_state.yaw = land_yaw_;
   desired_state.velocity.z() = -commanded_descent_speed;
 
+  const bool touchdown_latched = !land_touchdown_detected_time_.isZero();
+  if (touchdown_latched) {
+    land_expect_position_.z() = reference_floor;
+    desired_state.position = land_expect_position_;
+    desired_state.velocity =
+        Eigen::Vector3d(0.0, 0.0, -touchdown_downpress_speed);
+    return solve_attitude_thrust(desired_state, false);
+  }
+
   if (landed_detected) {
     if (land_touchdown_detected_time_.isZero()) {
       land_touchdown_detected_time_ = now;
+      land_expect_position_.z() = reference_floor;
       ROS_INFO(
           "[Attitude_Controller] LAND touchdown detected: current=(%.3f, "
           "%.3f, %.3f) sensor=%d low_velocity=%d",
@@ -594,6 +607,9 @@ ControllerOutput Attitude_Controller::handle_land_state() {
           uav_current_state_.position.z(), px4_land_status_ ? 1 : 0,
           landed_by_velocity ? 1 : 0);
     }
+    desired_state.position = land_expect_position_;
+    desired_state.velocity =
+        Eigen::Vector3d(0.0, 0.0, -touchdown_downpress_speed);
     return solve_attitude_thrust(desired_state, false);
   }
 
