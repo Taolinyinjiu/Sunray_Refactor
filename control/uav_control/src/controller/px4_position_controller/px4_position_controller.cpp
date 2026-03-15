@@ -263,6 +263,10 @@ ControllerOutput Position_Controller::handle_hover_state() {
   const TrajectoryPointReference trajectory_ref(trajectory_);
   temp_output.channel_enable(ControllerOutputMask::POSITION);
   temp_output.position = trajectory_ref.position;
+  if (trajectory_ref.is_field_enabled(TrajectoryPointReference::Field::YAW)) {
+    temp_output.channel_enable(ControllerOutputMask::YAW);
+    temp_output.yaw = trajectory_ref.heading;
+  }
   return temp_output;
 }
 
