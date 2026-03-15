@@ -32,6 +32,8 @@ private:
     double position_integral_start_error_xy_m{0.2};
     double position_integral_start_error_z_m{1.0};
     double min_command_thrust{0.1};
+    double land_near_ground_speed_scale{1.5};
+    double land_reference_margin_m{0.05};
   };
 
   void reset_takeoff_context_if_needed();

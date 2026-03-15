@@ -101,6 +101,31 @@ bool Attitude_Controller::load_param(ros::NodeHandle &nh) {
   ctrl_param_.Kv = Eigen::Vector3d(kv_xy, kv_xy, kv_z);
   ctrl_param_.Kvi = Eigen::Vector3d(kvi_xy, kvi_xy, kvi_z);
 
+  nh.param("sunray_attitude_controller/land_xy_kp", land_xy_kp_, land_xy_kp_);
+  nh.param("sunray_attitude_controller/land_max_velocity_xy_mps",
+           land_max_velocity_xy_mps_, land_max_velocity_xy_mps_);
+  nh.param("sunray_attitude_controller/land_touchdown_velocity_threshold_mps",
+           land_touchdown_velocity_threshold_mps_,
+           land_touchdown_velocity_threshold_mps_);
+  nh.param("sunray_attitude_controller/land_touchdown_velocity_hold_time_s",
+           land_touchdown_velocity_hold_time_s_,
+           land_touchdown_velocity_hold_time_s_);
+  nh.param("sunray_attitude_controller/land_touchdown_height_threshold_m",
+           land_touchdown_height_threshold_m_,
+           land_touchdown_height_threshold_m_);
+  nh.param("sunray_attitude_controller/land_touchdown_downpress_speed_mps",
+           land_touchdown_downpress_speed_mps_,
+           land_touchdown_downpress_speed_mps_);
+  nh.param("sunray_attitude_controller/land_touchdown_downpress_time_s",
+           land_touchdown_downpress_time_s_,
+           land_touchdown_downpress_time_s_);
+  nh.param("sunray_attitude_controller/land_near_ground_speed_scale",
+           ctrl_param_.land_near_ground_speed_scale,
+           ctrl_param_.land_near_ground_speed_scale);
+  nh.param("sunray_attitude_controller/land_reference_margin_m",
+           ctrl_param_.land_reference_margin_m,
+           ctrl_param_.land_reference_margin_m);
+
   if (!(ctrl_param_.controller_update_hz > 0.0)) {
     ctrl_param_.controller_update_hz = 100.0;
   }
@@ -122,6 +147,22 @@ bool Attitude_Controller::load_param(ros::NodeHandle &nh) {
   }
   ctrl_param_.hover_percent =
       std::max(1e-3, std::min(1.0, ctrl_param_.hover_percent));
+  land_xy_kp_ = std::max(0.0, land_xy_kp_);
+  land_max_velocity_xy_mps_ = std::max(0.0, land_max_velocity_xy_mps_);
+  land_touchdown_velocity_threshold_mps_ =
+      std::max(0.01, land_touchdown_velocity_threshold_mps_);
+  land_touchdown_velocity_hold_time_s_ =
+      std::max(0.1, land_touchdown_velocity_hold_time_s_);
+  land_touchdown_height_threshold_m_ =
+      std::max(0.02, land_touchdown_height_threshold_m_);
+  land_touchdown_downpress_speed_mps_ =
+      std::max(0.05, land_touchdown_downpress_speed_mps_);
+  land_touchdown_downpress_time_s_ =
+      std::max(0.1, land_touchdown_downpress_time_s_);
+  ctrl_param_.land_near_ground_speed_scale =
+      std::max(1.0, ctrl_param_.land_near_ground_speed_scale);
+  ctrl_param_.land_reference_margin_m =
+      std::max(0.0, ctrl_param_.land_reference_margin_m);
 
   ROS_INFO(
       "[Attitude_Controller] params loaded: mass=%.3f gravity=%.3f "
@@ -194,6 +235,7 @@ void Attitude_Controller::reset_land_context_if_needed() {
     land_singlecurve_time_ = 0.0;
     land_low_velocity_start_time_ = ros::Time(0);
     land_touchdown_detected_time_ = ros::Time(0);
+    last_update_time_ = ros::Time(0);
     reset_integrator();
   }
 }
@@ -471,11 +513,25 @@ ControllerOutput Attitude_Controller::handle_land_state() {
     land_touchdown_detected_time_ = ros::Time(0);
     land_expect_position_.x() = uav_current_state_.position.x();
     land_expect_position_.y() = uav_current_state_.position.y();
+    land_expect_position_.z() = uav_current_state_.position.z();
     land_yaw_ = yaw_from_quaternion(uav_current_state_.orientation);
+    last_update_time_ = land_start_time_;
+    ROS_INFO(
+        "[Attitude_Controller] LAND init: hold_xy=(%.3f, %.3f) current_z=%.3f "
+        "ground_z=%.3f land_type=%u yaw=%.3f",
+        land_expect_position_.x(), land_expect_position_.y(),
+        uav_current_state_.position.z(), ground_reference_z_,
+        static_cast<unsigned>(land_type_), land_yaw_);
     reset_integrator();
   }
 
   const ros::Time now = ros::Time::now();
+  double dt = 1.0 / std::max(1.0, ctrl_param_.controller_update_hz);
+  if (!last_update_time_.isZero() && now > last_update_time_) {
+    dt = (now - last_update_time_).toSec();
+  }
+  last_update_time_ = now;
+
   const bool near_ground =
       ground_reference_initialized_ &&
       (uav_current_state_.position.z() <=
@@ -502,25 +558,51 @@ ControllerOutput Attitude_Controller::handle_land_state() {
           land_touchdown_velocity_hold_time_s_;
   const bool landed_detected = px4_land_status_ || landed_by_velocity;
 
+  const double nominal_descent_speed =
+      std::max(0.1, std::abs(land_max_velocity_));
+  const double stronger_descent_speed =
+      std::min(std::max(nominal_descent_speed *
+                            ctrl_param_.land_near_ground_speed_scale,
+                        std::abs(land_touchdown_downpress_speed_mps_)),
+               std::max(std::abs(velocity_max_.z()), nominal_descent_speed));
+  const double commanded_descent_speed =
+      landed_detected ? stronger_descent_speed
+                      : (near_ground ? stronger_descent_speed
+                                     : nominal_descent_speed);
+
+  const double reference_floor =
+      ground_reference_initialized_
+          ? (ground_reference_z_ - std::max(0.0, ctrl_param_.land_reference_margin_m))
+          : (uav_current_state_.position.z() -
+             std::max(0.0, ctrl_param_.land_reference_margin_m));
+  land_expect_position_.z() =
+      std::max(reference_floor,
+               land_expect_position_.z() - commanded_descent_speed * dt);
+
   DesiredState desired_state;
-  desired_state.position =
-      Eigen::Vector3d(land_expect_position_.x(), land_expect_position_.y(),
-                      uav_current_state_.position.z());
+  desired_state.position = land_expect_position_;
   desired_state.yaw = land_yaw_;
+  desired_state.velocity.z() = -commanded_descent_speed;
 
   if (landed_detected) {
     if (land_touchdown_detected_time_.isZero()) {
       land_touchdown_detected_time_ = now;
+      ROS_INFO(
+          "[Attitude_Controller] LAND touchdown detected: current=(%.3f, "
+          "%.3f, %.3f) sensor=%d low_velocity=%d",
+          uav_current_state_.position.x(), uav_current_state_.position.y(),
+          uav_current_state_.position.z(), px4_land_status_ ? 1 : 0,
+          landed_by_velocity ? 1 : 0);
     }
-    desired_state.velocity =
-        Eigen::Vector3d(0.0, 0.0, -std::abs(land_touchdown_downpress_speed_mps_));
     return solve_attitude_thrust(desired_state, false);
   }
 
-  const double descent_speed =
-      (land_max_velocity_ < 0.0) ? land_max_velocity_
-                                 : -std::max(0.1, land_max_velocity_);
-  desired_state.velocity = Eigen::Vector3d(0.0, 0.0, descent_speed);
+  const double ex = land_expect_position_.x() - uav_current_state_.position.x();
+  const double ey = land_expect_position_.y() - uav_current_state_.position.y();
+  desired_state.velocity.x() =
+      clamp_symmetric(land_xy_kp_ * ex, land_max_velocity_xy_mps_);
+  desired_state.velocity.y() =
+      clamp_symmetric(land_xy_kp_ * ey, land_max_velocity_xy_mps_);
   return solve_attitude_thrust(desired_state, true);
 }
 
